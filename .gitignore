@@ -1,7 +1,9 @@
 data/kolmogorov/
 data/lorenz63/
-data/1DHeatEq/
+data/Cylinder/
 data/2DAdvdiffEq/
+data/CHAP/
+
 .DS_Store
 .env
 .env.local
