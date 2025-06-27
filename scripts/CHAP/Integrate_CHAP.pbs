@@ -1,0 +1,15 @@
+#!/bin/bash
+#PBS -N CHAP_consolidation
+#PBS -l walltime=06:00:00
+#PBS -q v1_large24a
+#PBS -l select=1:ncpus=4:mem=512gb
+#PBS -o chap_consolidation.out
+#PBS -e chap_consolidation.err
+#PBS -V
+
+cd $PBS_O_WORKDIR
+
+source ~/.bashrc
+conda activate irp-env
+
+python src/utils/Integrate_CHAP.py

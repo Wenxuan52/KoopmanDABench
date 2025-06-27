@@ -14,3 +14,6 @@ data/CHAP/
 __pycache__/
 
 results/
+
+*.err
+*.out
