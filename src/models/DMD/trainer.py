@@ -395,6 +395,7 @@ def train_large_model(config, model_type: str):
     
     # Get training dataset
     train_dataset = data_loader.train_dataset
+    val_dataset = data_loader.val_dataset
     
     # Concatenate all training data
     print("\nConcatenating training data...")
@@ -472,17 +473,17 @@ def train_large_model(config, model_type: str):
     print("\nTesting reconstruction...")
     
     # Create test data in the correct format [n_features, n_time_steps]
-    test_sample_idx = 0
+    test_sample_idx = 5
     if dataset_name.lower() == "kolmogorov":
-        test_data_original = train_dataset.data[test_sample_idx]  # [T, D]
+        test_data_original = val_dataset.data[test_sample_idx]  # [T, D]
         test_data = test_data_original.T  # [D, T]
     elif dataset_name.lower() == "cylinder":
-        test_data_original = train_dataset.data[test_sample_idx]  # [T, C, H, W]
+        test_data_original = val_dataset.data[test_sample_idx]  # [T, C, H, W]
         T, C, H_W = test_data_original.shape
         test_data_reshaped = test_data_original.reshape(T, C*H_W)  # [T, D]
         test_data = test_data_reshaped.T  # [D, T]
     elif dataset_name.lower() == "chap":
-        test_data_original = train_dataset.data[test_sample_idx]  # [T, D]
+        test_data_original = val_dataset.data[test_sample_idx]  # [T, D]
         test_data = test_data_original.T  # [D, T]
     
     # Limit test steps for efficiency

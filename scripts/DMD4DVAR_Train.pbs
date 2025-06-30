@@ -1,0 +1,15 @@
+#!/bin/bash
+#PBS -N DMD4DVAR_kolmogorov
+#PBS -l walltime=16:00:00
+#PBS -q v1_large24
+#PBS -l select=1:ncpus=4:mem=900gb
+#PBS -o DMD4DVAR_kolmogorov.out
+#PBS -e DMD4DVAR_kolmogorov.err
+#PBS -V
+
+cd $PBS_O_WORKDIR
+
+source ~/.bashrc
+conda activate irp-env
+
+python src/models/DMD_4dvar/trainer.py --config configs/DMD_4dvar.yaml --val_indices 5

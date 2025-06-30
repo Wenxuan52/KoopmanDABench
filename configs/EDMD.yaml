@@ -17,18 +17,18 @@ dictionary_functions:
   # Polynomial basis functions
   polynomial:
     enabled: true
-    degree: 3  # Maximum polynomial degree (1=linear, 2=quadratic, 3=cubic)
+    degree: 1  # Maximum polynomial degree (1=linear, 2=quadratic, 3=cubic)
   
   # Radial Basis Functions (RBF)
   rbf:
     enabled: true  # Set to true to enable RBF
-    n_centers: 20   # Number of RBF centers
+    n_centers: 10   # Number of RBF centers
     sigma: 1.0      # RBF width parameter
     center_type: "random"  # How to place centers ("random")
   
   # Fourier basis functions
   fourier:
-    enabled: true  # Set to true to enable Fourier features
+    enabled: false  # Set to true to enable Fourier features
     frequencies: [0.5, 1.0, 2.0, 4.0]  # List of frequencies
     # Alternative: use frequency range
     # frequencies:

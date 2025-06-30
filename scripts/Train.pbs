@@ -1,10 +1,10 @@
 #!/bin/bash
-#PBS -N CAEMLP_main
+#PBS -N CAEDMD_main
 #PBS -l walltime=16:00:00
 #PBS -q v1_medium24
-#PBS -l select=1:ncpus=1:mem=128gb
-#PBS -o debug-main-kolmogorov.out
-#PBS -e debug-main-kolmogorov.err
+#PBS -l select=1:ncpus=8:mem=128gb
+#PBS -o CAEDMD-kolmogorov.out
+#PBS -e CAEDMD-kolmogorov.err
 #PBS -V
 
 cd $PBS_O_WORKDIR
@@ -12,4 +12,6 @@ cd $PBS_O_WORKDIR
 source ~/.bashrc
 conda activate irp-env
 
-python src/main.py --model CAE_LinearMLP --dataset cylinder --config configs/CAE_MLP_.yaml
+# python src/main.py --model CAE_LinearMLP --dataset cylinder --config configs/CAE_MLP_.yaml
+
+python src/main.py --model CAE_DMD --dataset kolmogorov --config configs/CAE_DMD.yaml

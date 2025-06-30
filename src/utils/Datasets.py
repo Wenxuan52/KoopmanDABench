@@ -173,7 +173,7 @@ class DatasetCylinder(BaseDataset):
                     metadata = json.load(f)
             
             # Check original resolution
-            print(f"Case {os.path.basename(case_folder)}: u shape = {u.shape}, v shape = {v.shape}")
+            # print(f"Case {os.path.basename(case_folder)}: u shape = {u.shape}, v shape = {v.shape}")
             
             # Stack u and v as channels: [time, 2, height, width]
             uv = np.stack([u, v], axis=1)

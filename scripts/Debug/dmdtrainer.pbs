@@ -1,10 +1,10 @@
 #!/bin/bash
-#PBS -N EDMD_kolmogorov
+#PBS -N DMD_cylinder
 #PBS -l walltime=06:00:00
 #PBS -q v1_medium24
 #PBS -l select=1:ncpus=4:mem=256gb
-#PBS -o debug-EDMD_kolmogorov.out
-#PBS -e debug-EDMD_kolmogorov.err
+#PBS -o DMD_cylinder.out
+#PBS -e DMD_cylinder.err
 #PBS -V
 
 cd $PBS_O_WORKDIR
@@ -14,4 +14,6 @@ conda activate irp-env
 
 cd src
 
-python models/DMD/trainer.py --model EDMD --config ../configs/EDMD.yaml
+# python models/DMD/trainer.py --model EDMD --config ../configs/EDMD.yaml
+
+python models/DMD/trainer.py --model DMD --config ../configs/DMD.yaml

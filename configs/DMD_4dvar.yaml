@@ -1,0 +1,156 @@
+# DMD+4DVAR Configuration File Example
+# Save this as: configs/DMD_4dvar.yaml
+
+# Experiment settings
+experiment_name: "dmd4dvar_cylinder"
+device: "cpu"  # or "cpu"
+seed: 42
+
+# Data configuration
+data:
+  dataset_name: "cylinder"  # Options: "kolmogorov", "cylinder", "chap"
+  data_path: "./data"
+  normalize: true
+  train_ratio: 0.8
+  batch_size: 32
+  num_workers: 4
+  
+  # Sequence settings
+  sequence_length: 50  # Length of extracted sequences
+  
+  # Observation settings
+  observation:
+    mode: "random"  # Options: "fixed", "random"
+    ratio: 0.1  # Fraction of points to observe
+    pattern: "random"  # Options: "grid", "random", "boundaries" (only for fixed mode)
+    frequency: 1  # Observe every N time steps
+  
+  # Dataset-specific kwargs
+  dataset_kwargs: {}
+  # For cylinder dataset:
+  # dataset_kwargs:
+  #   target_resolution: [100, 140]
+  #   interpolation_mode: "bilinear"
+  # For CHAP dataset:
+  # dataset_kwargs:
+  #   chemical: "Cl"  # Options: "Cl", "NH4", "NO3", "SO4"
+
+# Model configuration
+model:
+  # Encoder/Decoder paths (optional, for latent space assimilation)
+  encoder_path: null  # Path to trained encoder
+  decoder_path: null  # Path to trained decoder
+  use_latent_space: false
+  latent_dim: 50  # Required if loading DMD trained in latent space
+  
+  # DMD parameters
+  dmd_params:
+    svd_rank: 50  # Truncation rank for SVD
+    exact: true  # Use exact DMD
+    tlsq_rank: null  # If not null, use Total Least Squares DMD
+  
+  # DMD training settings
+  dmd_training:
+    load_pretrained: false  # If true, load from dmd_path
+    dmd_path: "./results/checkpoints/DMD_4dvar/pretrained_model/dmd_kolmogorov.npz"  # Path to pre-trained DMD model
+
+# Data assimilation configuration
+assimilation:
+  method: "kalman"  # Options: "kalman", "var"
+  window_size: 10  # Number of observation times to use per window
+  
+  # Error covariances
+  B_type: "identity"  # Background error covariance type: "identity", "diagonal"
+  B_scale: 1.0  # Scale factor for B
+  R_type: "identity"  # Observation error covariance type: "identity", "diagonal" 
+  R_scale: 0.1  # Scale factor for R
+  
+  # Observation noise (optional)
+  add_noise: false
+  noise_level: 0
+  noise_type: "gaussian"  # Options: "gaussian", "uniform"
+  
+  # Validation samples to process
+  max_samples: 100  # Maximum number of validation samples to assimilate
+  
+  # Variational method settings (only used if method="var")
+  max_iter: 10000
+  tol: 1.0e-08
+
+# Results configuration
+results:
+  save_dir: "./results/checkpoints/DMD_4dvar"
+  visualize: true  # Generate visualization plots
+
+
+# ## Usage Examples:
+
+# ### 1. Basic Usage
+# ```bash
+# python src/models/DMD_4dvar/trainer.py --config configs/DMD_4dvar.yaml
+# ```
+
+# ### 2. Assimilate Specific Validation Indices
+# ```bash
+# python src/models/DMD_4dvar/trainer.py --config configs/DMD_4dvar.yaml --val_indices 0 5 10 15 20
+# ```
+
+# ### 3. Example with Pre-trained DMD
+# ```yaml
+# model:
+#   dmd_training:
+#     load_pretrained: true
+#     dmd_path: "./results/checkpoints/DMD_4dvar/pretrained_dmd.npz"
+# ```
+
+# ### 4. Example with Random Observations
+# ```yaml
+# data:
+#   observation:
+#     mode: "random"  # Different observations at each time
+#     ratio: 0.1
+#     frequency: 1  # Observe every time step
+# ```
+
+# ### 5. Example with Latent Space Assimilation
+# ```yaml
+# model:
+#   encoder_path: "./models/autoencoder/encoder.pth"
+#   decoder_path: "./models/autoencoder/decoder.pth"
+#   use_latent_space: true
+#   latent_dim: 32
+# ```
+
+# ### 6. Example with Variational Method
+# ```yaml
+# assimilation:
+#   method: "var"
+#   window_size: 5
+#   max_iter: 200
+#   tol: 1e-7
+# ```
+
+# ### 7. Example for Cylinder Dataset
+# ```yaml
+# data:
+#   dataset_name: "cylinder"
+#   dataset_kwargs:
+#     target_resolution: [64, 128]
+#     interpolation_mode: "bilinear"
+#   observation:
+#     mode: "fixed"
+#     ratio: 0.3
+#     pattern: "boundaries"  # Observe flow boundaries
+# ```
+
+# ### 8. Example for CHAP Dataset
+# ```yaml
+# data:
+#   dataset_name: "chap"
+#   dataset_kwargs:
+#     chemical: "NO3"
+#   observation:
+#     mode: "fixed"
+#     ratio: 0.15
+#     pattern: "grid"
+# ```

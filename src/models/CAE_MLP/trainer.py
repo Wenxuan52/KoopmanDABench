@@ -20,7 +20,7 @@ current_file_path = os.path.abspath(os.path.dirname(__file__))
 project_root = os.path.abspath(os.path.join(current_file_path, '..', '..', '..'))
 sys.path.insert(0, project_root)
 
-from src.models.CAE_MLP.caemlp import CAE_LinearMLP, CAE_WeakLinearMLP
+from src.models.CAE_MLP.caemlp import CAE_LinearMLP, CAE_WeakLinearMLP, CAE_DMD
 from src.models.CAE_MLP.utils import CAEMLPLoss, reshape_data_for_cae, create_caemlp_dataloaders
 
 
@@ -28,7 +28,7 @@ class CAEMLPTrainer:
     """Trainer for CAE-MLP models"""
     
     def __init__(self, 
-                 model: Union[CAE_LinearMLP, CAE_WeakLinearMLP],
+                 model: Union[CAE_LinearMLP, CAE_WeakLinearMLP, CAE_DMD],
                  train_loader: DataLoader,
                  val_loader: DataLoader,
                  train_mode: str = 'jointly',
@@ -772,6 +772,12 @@ def train_caemlp_from_config(config_path: str, **kwargs):
         )
     elif model_type == 'CAE_WeakLinearMLP':
         model = CAE_WeakLinearMLP(
+            input_channels=input_channels,
+            input_shape=input_shape,
+            **model_config['params']
+        )
+    elif model_type == 'CAE_DMD':
+        model = CAE_DMD(
             input_channels=input_channels,
             input_shape=input_shape,
             **model_config['params']

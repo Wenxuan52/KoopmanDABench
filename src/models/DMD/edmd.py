@@ -2,7 +2,16 @@ import numpy as np
 import torch
 from typing import Callable, List, Optional, Dict, Any, Tuple
 from scipy.linalg import svd, pinv
-from dmd import DMD
+
+import os
+import sys
+
+current_file_path = os.path.abspath(os.path.dirname(__file__))
+project_root = os.path.abspath(os.path.join(current_file_path, '..', '..', '..'))
+sys.path.insert(0, project_root)
+
+# Import DMD and utilities
+from src.models.DMD.dmd import DMD
 
 
 class EDMD(DMD):
@@ -638,3 +647,4 @@ if __name__ == "__main__":
         print(f"Save/load test failed: {e}")
     
     print("\nEDMD test completed!")
+

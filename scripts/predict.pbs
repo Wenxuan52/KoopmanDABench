@@ -1,0 +1,19 @@
+#!/bin/bash
+#PBS -N Predict
+#PBS -l walltime=00:30:00
+#PBS -q v1_medium24
+#PBS -l select=1:ncpus=4:mem=32gb
+#PBS -o predict.out
+#PBS -e predict.err
+#PBS -V
+
+cd $PBS_O_WORKDIR
+
+source ~/.bashrc
+conda activate irp-env
+
+# python results/predictions/CAE_MLP/CAE_MLP_cyl_pred.py
+
+python results/predictions/CAE_DMD/CAE_DMD_kol_pred.py
+
+# python results/predictions/DMD4DVAR/DMD4DVAR_kol_pred.py

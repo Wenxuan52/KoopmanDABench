@@ -17,6 +17,7 @@ if project_root not in sys.path:
 
 # Import model-specific trainers
 from models.CAE_MLP.trainer import train_caemlp_from_config
+from models.CAE_MLP.caedmd_trainer import train_cae_dmd_from_config
 
 
 def create_experiment_folder(base_path: str, model_name: str, dataset_name: str) -> str:
@@ -56,11 +57,95 @@ def save_config(config_path: str, save_path: str, overrides: dict):
     return config
 
 
-def plot_losses(train_losses: dict, val_losses: dict, save_path: str, train_mode: str = 'jointly'):
+def plot_losses(train_losses: dict, val_losses: dict, save_path: str, train_mode: str = 'jointly', model_type: str = 'CAE_MLP'):
     """Plot and save training losses"""
     plt.style.use('seaborn-v0_8-darkgrid')
     
-    if train_mode == 'jointly':
+    if model_type == 'CAE_DMD':
+        # Special plotting for CAE_DMD with its three phases
+        fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+        fig.suptitle('CAE-DMD Training Progress', fontsize=16)
+        
+        # CAE Reconstruction (all phases)
+        ax = axes[0, 0]
+        if 'cae_reconstruction' in train_losses and train_losses['cae_reconstruction']:
+            ax.plot(train_losses['cae_reconstruction'], label='Train', linewidth=2)
+            ax.plot(val_losses['cae_reconstruction'], label='Validation', linewidth=2)
+        ax.set_title('CAE Reconstruction Loss')
+        ax.set_xlabel('Epoch')
+        ax.set_ylabel('Loss')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        # Total Loss (after DMD fitting)
+        ax = axes[0, 1]
+        if 'total_after_dmd' in train_losses and train_losses['total_after_dmd']:
+            epochs_offset = len(train_losses.get('cae_reconstruction', [])) - len(train_losses['total_after_dmd'])
+            epochs = range(epochs_offset + 1, epochs_offset + len(train_losses['total_after_dmd']) + 1)
+            ax.plot(epochs, train_losses['total_after_dmd'], label='Train', linewidth=2)
+            ax.plot(epochs, val_losses['total_after_dmd'], label='Validation', linewidth=2)
+        ax.set_title('Total Loss (Joint Training)')
+        ax.set_xlabel('Epoch')
+        ax.set_ylabel('Loss')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        # Reconstruction Loss (after DMD fitting)
+        ax = axes[0, 2]
+        if 'reconstruction_after_dmd' in train_losses and train_losses['reconstruction_after_dmd']:
+            epochs_offset = len(train_losses.get('cae_reconstruction', [])) - len(train_losses['reconstruction_after_dmd'])
+            epochs = range(epochs_offset + 1, epochs_offset + len(train_losses['reconstruction_after_dmd']) + 1)
+            ax.plot(epochs, train_losses['reconstruction_after_dmd'], label='Train', linewidth=2)
+            ax.plot(epochs, val_losses['reconstruction_after_dmd'], label='Validation', linewidth=2)
+        ax.set_title('Reconstruction Loss (Joint Training)')
+        ax.set_xlabel('Epoch')
+        ax.set_ylabel('Loss')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        # Prediction Loss (after DMD fitting)
+        ax = axes[1, 0]
+        if 'prediction_after_dmd' in train_losses and train_losses['prediction_after_dmd']:
+            epochs_offset = len(train_losses.get('cae_reconstruction', [])) - len(train_losses['prediction_after_dmd'])
+            epochs = range(epochs_offset + 1, epochs_offset + len(train_losses['prediction_after_dmd']) + 1)
+            ax.plot(epochs, train_losses['prediction_after_dmd'], label='Train', linewidth=2)
+            ax.plot(epochs, val_losses['prediction_after_dmd'], label='Validation', linewidth=2)
+        ax.set_title('DMD Prediction Loss (Joint Training)')
+        ax.set_xlabel('Epoch')
+        ax.set_ylabel('Loss')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        # Training phases timeline
+        ax = axes[1, 1]
+        ax.set_title('Training Phase Overview')
+        ax.text(0.1, 0.8, 'Phase 1: CAE Training', transform=ax.transAxes, fontsize=10, 
+               bbox=dict(boxstyle="round,pad=0.3", facecolor="lightblue"))
+        ax.text(0.1, 0.6, 'Phase 2: Data Collection', transform=ax.transAxes, fontsize=10,
+               bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgreen"))
+        ax.text(0.1, 0.4, 'Phase 3: Joint Training', transform=ax.transAxes, fontsize=10,
+               bbox=dict(boxstyle="round,pad=0.3", facecolor="lightcoral"))
+        ax.text(0.1, 0.2, 'DMD fitted dynamically', transform=ax.transAxes, fontsize=10,
+               bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow"))
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.axis('off')
+        
+        # Loss comparison
+        ax = axes[1, 2]
+        if ('cae_reconstruction' in train_losses and train_losses['cae_reconstruction'] and
+            'total_after_dmd' in train_losses and train_losses['total_after_dmd']):
+            # Plot final CAE loss vs joint training loss
+            cae_final = train_losses['cae_reconstruction'][-1] if train_losses['cae_reconstruction'] else 0
+            joint_final = train_losses['total_after_dmd'][-1] if train_losses['total_after_dmd'] else 0
+            
+            ax.bar(['CAE Only', 'Joint Training'], [cae_final, joint_final], 
+                  color=['lightblue', 'lightcoral'], alpha=0.7)
+            ax.set_title('Final Loss Comparison')
+            ax.set_ylabel('Loss')
+        ax.grid(True, alpha=0.3)
+        
+    elif train_mode == 'jointly':
         # Single plot for joint training
         fig, axes = plt.subplots(2, 2, figsize=(12, 10))
         fig.suptitle('Training Progress - Joint Mode', fontsize=16)
@@ -233,7 +318,7 @@ def save_loss_data(train_losses: dict, val_losses: dict, save_path: str):
 def main():
     parser = argparse.ArgumentParser(description='Train dynamical system models')
     parser.add_argument('--model', type=str, required=True,
-                      choices=['CAE_LinearMLP', 'CAE_WeakLinearMLP', 'DMD', 'KoopmanAE'],
+                      choices=['CAE_LinearMLP', 'CAE_WeakLinearMLP', 'CAE_DMD', 'DMD', 'KoopmanAE'],
                       help='Model type to train')
     parser.add_argument('--dataset', type=str, required=True,
                       choices=['kolmogorov', 'cylinder', 'chap'],
@@ -317,7 +402,7 @@ def main():
             train_mode = final_config.get('training', {}).get('train_mode', 'jointly')
             
             # Plot and save losses
-            plot_losses(train_losses, val_losses, exp_path, train_mode)
+            plot_losses(train_losses, val_losses, exp_path, train_mode, 'CAE_MLP')
             save_loss_data(train_losses, val_losses, exp_path)
             
             # Copy best and latest checkpoints to organized structure
@@ -371,6 +456,121 @@ def main():
             
         except Exception as e:
             print(f"\nError during training: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            # Save error log
+            with open(os.path.join(exp_path, 'error.log'), 'w') as f:
+                f.write(f"Error: {str(e)}\n\n")
+                f.write(traceback.format_exc())
+            
+            raise
+    
+    elif args.model == 'CAE_DMD':
+        # Train CAE-DMD model
+        try:
+            trainer, train_losses, val_losses = train_cae_dmd_from_config(
+                args.config,
+                **overrides
+            )
+            
+            # Plot and save losses
+            plot_losses(train_losses, val_losses, exp_path, 'jointly', 'CAE_DMD')
+            save_loss_data(train_losses, val_losses, exp_path)
+            
+            # Organize checkpoints and DMD models
+            checkpoint_files = [f for f in os.listdir(exp_path) if f.endswith('.pth')]
+            dmd_files = [f for f in os.listdir(exp_path) if f.endswith('.npz')]
+            
+            # Create organized structure
+            checkpoints_dir = os.path.join(exp_path, 'checkpoints')
+            dmd_models_dir = os.path.join(exp_path, 'dmd_models')
+            os.makedirs(checkpoints_dir, exist_ok=True)
+            os.makedirs(dmd_models_dir, exist_ok=True)
+            
+            # Move checkpoint files
+            for ckpt_file in checkpoint_files:
+                src = os.path.join(exp_path, ckpt_file)
+                dst = os.path.join(checkpoints_dir, ckpt_file)
+                shutil.move(src, dst)
+            
+            # Move DMD model files
+            for dmd_file in dmd_files:
+                src = os.path.join(exp_path, dmd_file)
+                dst = os.path.join(dmd_models_dir, dmd_file)
+                shutil.move(src, dst)
+            
+            # Create summary
+            summary = {
+                'model': args.model,
+                'dataset': args.dataset,
+                'device': device,
+                'seed': args.seed,
+                'experiment_path': exp_path,
+                'config_file': args.config,
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                'dmd_fitted_epoch': trainer.dmd_fitted_epoch,
+                'final_buffer_size': len(trainer.model.latent_buffer),
+                'training_phases': {
+                    'current_phase': trainer.current_phase,
+                    'dmd_min_samples': trainer.dmd_min_samples,
+                    'buffer_collection_epochs': trainer.dmd_buffer_collection_epochs,
+                    'retrain_interval': trainer.dmd_retrain_interval
+                }
+            }
+            
+            # Add final performance metrics if DMD was fitted
+            if trainer.dmd_fitted_epoch:
+                summary['best_val_loss'] = float(trainer.best_val_loss)
+                summary['best_epoch'] = int(trainer.best_epoch)
+                
+                # Add final losses
+                if train_losses['total_after_dmd']:
+                    summary['final_total_loss'] = float(train_losses['total_after_dmd'][-1])
+                    summary['final_reconstruction_loss'] = float(train_losses['reconstruction_after_dmd'][-1])
+                    summary['final_prediction_loss'] = float(train_losses['prediction_after_dmd'][-1])
+                
+                # Add DMD statistics
+                if trainer.dmd_stats['reconstruction_errors']:
+                    summary['dmd_final_reconstruction_error'] = trainer.dmd_stats['reconstruction_errors'][-1]
+            else:
+                summary['warning'] = 'DMD was not fitted during training - insufficient data'
+            
+            # Save summary
+            with open(os.path.join(exp_path, 'summary.json'), 'w') as f:
+                json.dump(summary, f, indent=4)
+            
+            print("\n" + "="*70)
+            print("CAE-DMD Training completed successfully!")
+            print(f"Results saved to: {exp_path}")
+            print("="*70)
+            
+            # Print final metrics
+            if trainer.dmd_fitted_epoch:
+                print(f"\n✓ DMD successfully fitted at epoch {trainer.dmd_fitted_epoch}")
+                print(f"✓ Best model at epoch {trainer.best_epoch}")
+                print(f"✓ Best validation loss: {trainer.best_val_loss:.6f}")
+                print(f"✓ Final buffer size: {len(trainer.model.latent_buffer)}")
+                
+                if train_losses['total_after_dmd']:
+                    print(f"\nFinal Joint Training Losses:")
+                    print(f"  Total: {train_losses['total_after_dmd'][-1]:.6f}")
+                    print(f"  Reconstruction: {train_losses['reconstruction_after_dmd'][-1]:.6f}")
+                    print(f"  Prediction: {train_losses['prediction_after_dmd'][-1]:.6f}")
+                
+                print(f"\nFiles saved:")
+                print(f"  - Checkpoints: checkpoints/")
+                print(f"  - DMD models: dmd_models/")
+                print(f"  - Training curves: training_curves.png")
+                print(f"  - Summary: summary.json")
+            else:
+                print(f"\n⚠ Warning: DMD was not fitted during training")
+                print(f"  Buffer size: {len(trainer.model.latent_buffer)}")
+                print(f"  Required: {trainer.dmd_min_samples}")
+                print("  Consider increasing epochs or reducing dmd_min_samples")
+            
+        except Exception as e:
+            print(f"\nError during CAE-DMD training: {e}")
             import traceback
             traceback.print_exc()
             

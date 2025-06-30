@@ -121,7 +121,7 @@ class DMD:
     def _fit_standard(self, X1: np.ndarray, X2: np.ndarray):
         """Standard DMD algorithm"""
         # Step 1: SVD of X1
-        U, S, Vh = svd(X1, full_matrices=False)
+        U, S, Vh = np.linalg.svd(X1, full_matrices=False)
         V = Vh.T.conj()
         
         # Truncate if needed
@@ -233,7 +233,7 @@ class DMD:
         if n_steps <= 0:
             raise ValueError(f"n_steps must be positive, got {n_steps}")
         
-        print(f"Predicting {n_steps} steps from initial condition with {x0.shape[0]} features")
+        # print(f"Predicting {n_steps} steps from initial condition with {x0.shape[0]} features")
         
         # Normalize initial condition using training statistics
         x0_normalized = (x0.reshape(-1, 1) - self.mean) / self.std
@@ -268,8 +268,8 @@ class DMD:
         # Denormalize predictions
         X_pred = X_pred_normalized.real * self.std + self.mean
         
-        print(f"Prediction complete. Output shape: {X_pred.shape}")
-        print(f"Prediction range: [{X_pred.min():.6f}, {X_pred.max():.6f}]")
+        # print(f"Prediction complete. Output shape: {X_pred.shape}")
+        # print(f"Prediction range: [{X_pred.min():.6f}, {X_pred.max():.6f}]")
         
         return X_pred
     

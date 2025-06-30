@@ -1,0 +1,44 @@
+dataset:
+  dataset_name: kolmogorov
+  data_path: ./data
+  batch_size: 32
+  train_ratio: 0.8
+  num_workers: 4
+  shuffle_train: true
+  shuffle_val: false
+  drop_last: true
+  pin_memory: true
+  normalize: true
+  random_seed: 42
+
+model:
+  type: "CAE_DMD"
+  params:
+    latent_dim: 128
+    cae_depth: 4
+    cae_base_channels: 32
+    dmd_svd_rank: 50
+    dmd_exact: true
+
+training:
+  epochs: 5000
+  learning_rate: 0.001
+  dmd_min_samples: 1000
+  dmd_buffer_collection_epochs: 1000
+  dmd_retrain_interval: 500
+  device: "cpu"
+  save_path: "results/checkpoints/CAE_DMD"
+
+  optimizer:
+    type: Adam  # Options: Adam, AdamW, SGD
+    params:
+      betas: [0.9, 0.999]
+      eps: 1.0e-08
+      weight_decay: 0.0001
+  
+  scheduler:
+    type: StepLR  # Options: StepLR, ExponentialLR, CosineAnnealingLR, ReduceLROnPlateau
+    params:
+      # For StepLR
+      step_size: 500
+      gamma: 0.95
