@@ -10,24 +10,17 @@ import glob
 class BaseDataset(Dataset):
     """Base dataset class for DMD models"""
     
-    def __init__(self, data_path: str, normalize: bool = True, train: bool = True, 
+    def __init__(self, data_path: str, normalize: bool = True, 
                  train_ratio: float = 0.8, random_seed: int = 42):
-        """
-        Args:
-            data_path: Path to the dataset
-            normalize: Whether to normalize the data
-            train: Whether this is training set or validation set
-            train_ratio: Ratio of training data
-            random_seed: Random seed for train/val split
-        """
         self.data_path = data_path
         self.normalize = normalize
-        self.train = train
         self.train_ratio = train_ratio
         self.random_seed = random_seed
         
         # To be filled by child classes
         self.data = None
+        self.train_data = None
+        self.val_data = None
         self.mean = None
         self.std = None
         
@@ -46,36 +39,31 @@ class BaseDataset(Dataset):
         raise NotImplementedError
     
     def _split_data(self):
-        """Split data into train/val sets"""
-        np.random.seed(self.random_seed)
+        """Split data into train/val sets sequentially"""
         n_samples = len(self.data)
-        indices = np.arange(n_samples)
-        np.random.shuffle(indices)
-        
         train_size = int(n_samples * self.train_ratio)
-        if self.train:
-            self.data = self.data[indices[:train_size]]
-        else:
-            self.data = self.data[indices[train_size:]]
+        
+        self.train_data = self.data[:train_size]
+        self.val_data = self.data[train_size:]
     
     def _normalize_data(self):
         """Normalize data using mean and std from training set"""
-        if self.train:
-            # Calculate mean and std from training data
-            # Handle both 3D (samples, time, features) and 4D (samples, time, channels, features) data
-            if self.data.ndim == 3:
-                self.mean = np.mean(self.data, axis=(0, 1), keepdims=True)
-                self.std = np.std(self.data, axis=(0, 1), keepdims=True)
-            elif self.data.ndim == 4:
-                # For 4D data: normalize per channel
-                self.mean = np.mean(self.data, axis=(0, 1, 3), keepdims=True)
-                self.std = np.std(self.data, axis=(0, 1, 3), keepdims=True)
-            # Avoid division by zero
-            self.std[self.std < 1e-8] = 1.0
+        # Calculate mean and std from training data
+        # Handle both 3D (samples, time, features) and 4D (samples, time, channels, features) data
+        if self.data.ndim == 4:
+            self.mean = np.mean(self.train_data, axis=(0, 1, 2, 3), keepdims=True)
+            self.std = np.std(self.train_data, axis=(0, 1, 2, 3), keepdims=True)
+        elif self.data.ndim == 5:
+            # For 4D data: normalize per channel
+            self.mean = np.mean(self.train_data, axis=(0, 1, 3, 4), keepdims=True)
+            self.std = np.std(self.train_data, axis=(0, 1, 3, 4), keepdims=True)
+        # Avoid division by zero
+        self.std[self.std < 1e-8] = 1.0
         
         # Apply normalization
         if self.mean is not None and self.std is not None:
-            self.data = (self.data - self.mean) / self.std
+            self.train_data = (self.train_data - self.mean) / self.std
+            self.val_data = (self.val_data - self.mean) / self.std
     
     def set_normalization_params(self, mean: np.ndarray, std: np.ndarray):
         """Set normalization parameters (for validation set)"""
@@ -86,22 +74,9 @@ class BaseDataset(Dataset):
         return len(self.data)
     
     def __getitem__(self, idx):
-        """Return a sample for DMD: (x_t, x_{t+1})"""
         sample = self.data[idx]
-        # For DMD, we need consecutive time steps
-        if sample.shape[0] < 2:
-            raise ValueError("Time series must have at least 2 time steps")
         
-        # Random time step selection
-        t = np.random.randint(0, sample.shape[0] - 1)
-        x_t = sample[t]
-        x_next = sample[t + 1]
-        
-        # Ensure proper shape
-        # For standard dataset (3D): sample is [time, features]
-        # For Cylinder dataset (4D): sample is [time, channels, features]
-        
-        return torch.FloatTensor(x_t), torch.FloatTensor(x_next)
+        return sample
 
 
 class DatasetKol(BaseDataset):
@@ -118,10 +93,8 @@ class DatasetKol(BaseDataset):
         data = np.load(file_path)
         print(f"Loaded Kolmogorov data with shape: {data.shape}")
         
-        # Reshape to [samples, time, features]
         # Flatten spatial dimensions: 64x64 -> 4096
-        self.data = data.reshape(data.shape[0], data.shape[1], -1)
-        print(f"Reshaped data to: {self.data.shape}")
+        self.data = data
 
 
 class DatasetCylinder(BaseDataset):
@@ -138,7 +111,7 @@ class DatasetCylinder(BaseDataset):
         """
         self.target_resolution = target_resolution
         self.interpolation_mode = interpolation_mode
-        super().__init__(data_path, normalize, train, train_ratio, random_seed)
+        super().__init__(data_path, normalize, train_ratio, random_seed)
     
     def _load_data(self):
         """Load Cylinder dataset"""
@@ -182,14 +155,9 @@ class DatasetCylinder(BaseDataset):
             if self.target_resolution is not None:
                 uv = self._interpolate_data(uv, self.target_resolution)
             
-            # Reshape to [time, channels, height*width]
-            # Keep channels separate: [time, 2, spatial_features]
-            n_time, n_channels, h, w = uv.shape
-            uv_reshaped = uv.reshape(n_time, n_channels, h * w)
-            
-            temp_data.append(uv_reshaped)
+            temp_data.append(uv)
             all_metadata.append(metadata)
-            min_time_steps = min(min_time_steps, uv_reshaped.shape[0])
+            min_time_steps = min(min_time_steps, uv.shape[0])
         
         if not temp_data:
             raise ValueError("No valid data found in Cylinder dataset")
@@ -286,3 +254,48 @@ class DatasetCHAP(BaseDataset):
         
         self.data = observations_flat
         print(f"Reshaped data to: {self.data.shape}")
+
+
+def denormalize_data(data: np.ndarray, mean: np.ndarray, std: np.ndarray) -> np.ndarray:
+    return data * std + mean
+
+if __name__ == "__main__":
+    # koldata = DatasetKol("data/kolmogorov", normalize=True, train_ratio=0.8, random_seed=42)
+    # print(koldata.mean)
+    # print(koldata.std)
+    
+    # print(koldata.train_data.shape)
+    # print(koldata.val_data.shape)
+
+    # print(koldata.train_data.min())
+    # print(koldata.train_data.max())
+
+    # print(koldata.val_data.min())
+    # print(koldata.val_data.max())
+
+    # de_train_data = denormalize_data(koldata.train_data, koldata.mean, koldata.std)
+    # de_val_data = denormalize_data(koldata.val_data, koldata.mean, koldata.std)
+    # print(de_train_data.min())
+    # print(de_train_data.max())
+    # print(de_val_data.min())
+    # print(de_val_data.max())
+
+    cylinderdata = DatasetCylinder("data/Cylinder", normalize=True, train_ratio=0.8, random_seed=42)
+    print(cylinderdata.mean)
+    print(cylinderdata.std)
+
+    print(cylinderdata.train_data.shape)
+    print(cylinderdata.val_data.shape)
+
+    print(cylinderdata.train_data.min())
+    print(cylinderdata.train_data.max())
+
+    print(cylinderdata.val_data.min())
+    print(cylinderdata.val_data.max())
+
+    de_train_data = denormalize_data(cylinderdata.train_data, cylinderdata.mean, cylinderdata.std)
+    de_val_data = denormalize_data(cylinderdata.val_data, cylinderdata.mean, cylinderdata.std)
+    print(de_train_data.min())
+    print(de_train_data.max())
+    print(de_val_data.min())
+    print(de_val_data.max())

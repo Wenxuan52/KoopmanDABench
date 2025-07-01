@@ -13,3 +13,4 @@ dependencies:
   - ipykernel
   - jupyter
   - scikit-learn
+  - torchvision
