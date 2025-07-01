@@ -84,7 +84,7 @@ class Decoder(nn.Module):
         return self.final_conv(out)
 
 
-class UNET(nn.Module):
+class channel_UNET(nn.Module):
 
     def __init__(self):
         super().__init__()

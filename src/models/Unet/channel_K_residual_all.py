@@ -83,66 +83,31 @@ class Decoder(nn.Module):
 
         return self.final_conv(out)
 
-class KoopmanDynamicsModule(nn.Module):
-    def __init__(self, feature_dim, koopman_dim=None, dt=1.0):
-        super(KoopmanDynamicsModule, self).__init__()
-        
-        if koopman_dim is None:
-            koopman_dim = feature_dim
-            
-        self.feature_dim = feature_dim
-        self.koopman_dim = koopman_dim
-        self.dt = dt
-        
-        self.encoder_to_koopman = nn.Linear(feature_dim, koopman_dim)
-        
-        self.koopman_operator = nn.Linear(koopman_dim, koopman_dim, bias=False)
-        
-        self.koopman_to_decoder = nn.Linear(koopman_dim, feature_dim)
-        
-        nn.init.eye_(self.koopman_operator.weight)
-        
-        self.koopman_operator.weight.data += 0.01 * torch.randn_like(self.koopman_operator.weight)
-        
-    def forward(self, x):
-        # x shape: [batch_size, channels, height, width]
-        batch_size, channels, height, width = x.shape
-        
-        # 展平特征图
-        x_flat = x.view(batch_size, -1)  # [batch_size, channels*height*width]
-        
-        # 编码到Koopman空间
-        koopman_features = self.encoder_to_koopman(x_flat)  # [batch_size, koopman_dim]
-        
-        # 应用Koopman动力学演化
-        evolved_features = self.koopman_operator(koopman_features)  # [batch_size, koopman_dim]
-        
-        # 解码回特征空间
-        decoded_features = self.koopman_to_decoder(evolved_features)  # [batch_size, feature_dim]
-        
-        # 重塑回原来的形状
-        output = decoded_features.view(batch_size, channels, height, width)
-        
-        return output
-    
-    def get_koopman_eigenvalues(self):
-        with torch.no_grad():
-            eigenvalues = torch.linalg.eigvals(self.koopman_operator.weight)
-        return eigenvalues
 
-class UNET(nn.Module):
+class channel_UNET(nn.Module):
 
     def __init__(self):
         super().__init__()
         self.encoder = Encoder()
         self.decoder = Decoder()
 
+        self.linear = nn.Linear(512, 512)
+
     def forward(self, x):
-        x = self.encoder(x)
-        x = self.decoder(x)
+        encoder_output, residual_connections = self.encoder(x)
+
+        encoder_output = encoder_output.permute(0, 2, 3, 1)
+
+        encoder_output = self.linear(encoder_output)
+
+        encoder_output = encoder_output.permute(0, 3, 1, 2)
+
+        decoder_input = (encoder_output, residual_connections)
+        x = self.decoder(decoder_input)
         return x
 
 
 if __name__ == "__main__":
     model = UNET()
-    summary(model, (1, 256, 256))
+    result = model(torch.randn(1, 1, 64, 64))
+    print(result.shape)
