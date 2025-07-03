@@ -1,0 +1,33 @@
+# Kolmogorov Flow Training Configuration
+
+# Data settings
+data_path: "../../../data/kolmogorov/RE1000/kf_2d_re1000_64_120seed.npy"  # Path to training data [N, T, 2, 64, 64]
+seq_length: 8  # Length of sequences for DMD training (reduced for CPU)
+
+# Model architecture
+latent_dim: 32  # Dimension of latent space for DMD (reduced for CPU)
+input_channels: 1  # Single channel (not u,v components but single field)
+input_size: 64  # Spatial resolution (64x64)
+
+# Training parameters
+batch_size: 1  # Very small batch size for CPU training
+num_epochs: 20  # Reduced epochs for CPU training
+learning_rate: 0.0005  # Slightly lower learning rate
+lambda_identity: 1.0  # Weight for reconstruction loss (identity loss)
+
+# Hardware settings
+gpu_id: 0  # Not used since no GPU
+num_workers: 0  # No parallel data loading for CPU
+
+# Save settings
+model_save_path: "./saved_models"  # Directory to save model weights
+
+# CPU-specific optimizations
+use_cpu: true  # Force CPU usage
+memory_efficient: true  # Enable memory-efficient training
+
+# Advanced settings (optional)
+# For CPU training, keep these conservative
+# decay_step: 5  # Epochs between learning rate decay  
+# decay_rate: 0.95  # Learning rate decay factor
+# gradient_clip: 0.5  # Gradient clipping threshold (lower for stability)
