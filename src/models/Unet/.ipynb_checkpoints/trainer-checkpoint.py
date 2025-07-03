@@ -312,8 +312,8 @@ if __name__ == "__main__":
     
     # 创建数据加载器
     train_loader, val_loader = create_single_frame_loaders(
-        data_path='./data/kolmogorov',
-        dataset_type='kolmogorov',
+        data_path='./data/cylinder',
+        dataset_type='cylinder',
         prediction_steps=5,
         batch_size=64,
         normalize=True,
@@ -321,22 +321,22 @@ if __name__ == "__main__":
     )
     
     # 创建模型
-    model = channel_UNET()
+    model = channel_UNET(in_channels=2, out_channels=2)
     
     # 开始训练
     train_losses, val_losses = train_model(
         model=model,
         train_loader=train_loader,
         val_loader=val_loader,
-        num_epochs=100,
+        num_epochs=50,
         learning_rate=1e-3,
         weight_decay=1e-5,
-        save_dir='./results/channel/',
-        early_stopping_patience=20
+        save_dir='./results/res_test_cyl/K_residual_all/',
+        early_stopping_patience=10
     )
     
 
-    plot_losses(train_losses, val_losses, save_dir='./results/channel/')
+    plot_losses(train_losses, val_losses, save_dir='./results/res_test_cyl/K_residual_all/')
     # 示例：使用训练好的模型进行预测
     # 加载最佳模型
     # checkpoint = torch.load('./checkpoints/best_model.pth')

@@ -75,10 +75,10 @@ class Decoder(nn.Module):
 
 class UNET_InputResidual(nn.Module):
 
-    def __init__(self):
+    def __init__(self, in_channels=1, out_channels=1):
         super().__init__()
-        self.encoder = Encoder(in_channels=1, channels=(64, 128, 256, 512))
-        self.decoder = Decoder(out_channel=1, channels=(512, 256, 128, 64))
+        self.encoder = Encoder(in_channels=in_channels, channels=(64, 128, 256, 512))
+        self.decoder = Decoder(out_channel=out_channels, channels=(512, 256, 128, 64))
 
         self.spatial_size = 4
         self.feature_dim = 512 * self.spatial_size * self.spatial_size
@@ -110,6 +110,6 @@ class UNET_InputResidual(nn.Module):
 
 
 if __name__ == "__main__":
-    model = UNET_InputResidual()
-    result = model(torch.randn(1, 1, 64, 64))
+    model = UNET_InputResidual(in_channels=2, out_channels=2)
+    result = model(torch.randn(1, 2, 64, 64))
     print(result.shape)

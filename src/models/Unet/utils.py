@@ -221,7 +221,6 @@ def create_single_frame_loaders(data_path: str,
             data_path=data_path,
             normalize=normalize,
             train_ratio=train_ratio,
-            target_resolution=target_resolution,
             **kwargs
         )
     else:
@@ -241,8 +240,8 @@ def create_single_frame_loaders(data_path: str,
 
 if __name__ == '__main__':
     train_loader, val_loader = create_single_frame_loaders(
-        data_path = './data/kolmogorov',
-        dataset_type = 'kolmogorov',
+        data_path = './data/cylinder',
+        dataset_type = 'cylinder',
         prediction_steps = 5,
         batch_size = 32,
         normalize=True,

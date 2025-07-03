@@ -86,10 +86,10 @@ class Decoder(nn.Module):
 
 class channel_UNET(nn.Module):
 
-    def __init__(self):
+    def __init__(self, in_channels=1, out_channels=1):
         super().__init__()
-        self.encoder = Encoder()
-        self.decoder = Decoder()
+        self.encoder = Encoder(in_channels=in_channels, channels=(64, 128, 256, 512))
+        self.decoder = Decoder(out_channel=out_channels, channels=(512, 256, 128, 64))
 
         self.linear = nn.Linear(512, 512)
 
@@ -108,6 +108,6 @@ class channel_UNET(nn.Module):
 
 
 if __name__ == "__main__":
-    model = UNET()
-    result = model(torch.randn(1, 1, 64, 64))
+    model = channel_UNET(in_channels=2, out_channels=2)
+    result = model(torch.randn(1, 2, 64, 64))
     print(result.shape)
