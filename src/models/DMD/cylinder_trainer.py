@@ -19,88 +19,16 @@ sys.path.append(upper_upper_directory)
 from cylinder_model import CYLINDER_C_FORWARD, CYLINDER_C_INVERSE
 from utils import dict2namespace, count_parameters
 
-
-class BaseDataset(Dataset):
-    """Base dataset class for DMD models"""
-    
-    def __init__(self, data_path: str, normalize: bool = True, 
-                 train_ratio: float = 0.8, random_seed: int = 42):
-        self.data_path = data_path
-        self.normalize = normalize
-        self.train_ratio = train_ratio
-        self.random_seed = random_seed
-        
-        # To be filled by child classes
-        self.data = None
-        self.train_data = None
-        self.val_data = None
-        self.mean = None
-        self.std = None
-        
-        # Load data
-        self._load_data()
-        
-        # Split train/val
-        self._split_data()
-        
-        # Normalize if needed
-        if self.normalize:
-            self._normalize_data()
-    
-    def _load_data(self):
-        """To be implemented by child classes"""
-        raise NotImplementedError
-    
-    def _split_data(self):
-        """Split data into train/val sets randomly"""
-        n_samples = len(self.data)
-        train_size = int(n_samples * self.train_ratio)
-        
-        # Set random seed for reproducible splits
-        np.random.seed(self.random_seed)
-        
-        # Create random indices
-        indices = np.random.permutation(n_samples)
-        print(f"[INFO] Random indices: {indices}")
-        train_indices = indices[:train_size]
-        val_indices = indices[train_size:]
-        
-        # Split data randomly
-        self.train_data = self.data[train_indices]
-        self.val_data = self.data[val_indices]
-        
-        print(f"[INFO] Data split: {len(self.train_data)} train, {len(self.val_data)} validation (random split)")
-    
-    def _normalize_data(self):
-        """Normalize data using mean and std from training set"""
-        # Calculate mean and std from training data
-        if self.data.ndim == 4:  # [samples, time, height, width]
-            self.mean = np.mean(self.train_data, axis=(0, 1, 2, 3), keepdims=True)
-            self.std = np.std(self.train_data, axis=(0, 1, 2, 3), keepdims=True)
-        elif self.data.ndim == 5:  # [samples, time, channels, height, width]
-            self.mean = np.mean(self.train_data, axis=(0, 1, 3, 4), keepdims=True)
-            self.std = np.std(self.train_data, axis=(0, 1, 3, 4), keepdims=True)
-        
-        # Avoid division by zero
-        self.std[self.std < 1e-8] = 1.0
-        
-        # Apply normalization
-        if self.mean is not None and self.std is not None:
-            self.train_data = (self.train_data - self.mean) / self.std
-            self.val_data = (self.val_data - self.mean) / self.std
-            print(f"[INFO] Data normalized - Mean: {self.mean.flatten()[:3]}..., Std: {self.std.flatten()[:3]}...")
-    
-    def set_normalization_params(self, mean: np.ndarray, std: np.ndarray):
-        """Set normalization parameters (for validation set)"""
-        self.mean = mean
-        self.std = std
-    
-    def __len__(self):
-        return len(self.data)
-    
-    def __getitem__(self, idx):
-        sample = self.data[idx]
-        return sample
+def set_seed(seed: int = 42):
+    """Set seed for reproducibility"""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    print(f"[INFO] Set random seed to {seed}")
 
 
 class CylinderDynamicsDataset(Dataset):
@@ -231,124 +159,10 @@ class CylinderDynamicsDataset(Dataset):
         print(f"[INFO] DA Dataset split set to: {split} ({len(self.indices)} samples)")
 
 
-class CylinderDADataset(Dataset):
-    """Memory-efficient Dataset for Cylinder flow data assimilation"""
-    
-    def __init__(self, data_path: str, history_len: int = 10, obs_noise_std: float = 0.01,
-                 normalize: bool = True, train_ratio: float = 0.8, random_seed: int = 42, 
-                 subsample_ratio: float = 0.1):
-        self.data_path = data_path
-        self.history_len = history_len
-        self.obs_noise_std = obs_noise_std
-        self.normalize = normalize
-        self.train_ratio = train_ratio
-        self.random_seed = random_seed
-        self.subsample_ratio = subsample_ratio
-        
-        # Load and process data
-        self._load_data()
-        self._create_indices()
-        
-        if self.normalize:
-            self._compute_normalization_stats()
-    
-    def _load_data(self):
-        """Load raw data without creating all pairs in memory"""
-        if not os.path.exists(self.data_path):
-            raise FileNotFoundError(f"Cylinder dataset not found at {self.data_path}")
-        
-        # Load data: [49, 1000, 2, 64, 64]
-        self.raw_data = np.load(self.data_path)
-        print(f"[INFO] Loaded Cylinder data for DA with shape: {self.raw_data.shape}")
-        
-        if len(self.raw_data.shape) != 5:
-            raise ValueError(f"Expected 5D data [samples, time, channels, height, width], got {self.raw_data.shape}")
-        
-        self.n_samples, self.n_time, self.n_channels, self.height, self.width = self.raw_data.shape
-    
-    def _create_indices(self):
-        """Create indices for valid DA pairs with subsampling"""
-        valid_indices = []
-        
-        for sample_idx in range(self.n_samples):
-            for t in range(self.history_len, self.n_time, max(1, int(1/self.subsample_ratio))):
-                valid_indices.append((sample_idx, t))
-        
-        # Random split
-        np.random.seed(self.random_seed)
-        np.random.shuffle(valid_indices)
-        
-        train_size = int(len(valid_indices) * self.train_ratio)
-        self.train_indices = valid_indices[:train_size]
-        self.val_indices = valid_indices[train_size:]
-        
-        # Use only training indices for now
-        self.indices = self.train_indices
-        
-        print(f"[INFO] Created {len(self.train_indices)} training DA pairs")
-        print(f"[INFO] Created {len(self.val_indices)} validation DA pairs")
-        print(f"[INFO] Subsampling ratio: {self.subsample_ratio}")
-    
-    def _compute_normalization_stats(self):
-        """Compute normalization statistics from a subset of training data"""
-        if not self.normalize:
-            return
-            
-        # Sample a subset of training data for computing stats
-        sample_size = min(500, len(self.train_indices))
-        sample_indices = np.random.choice(len(self.train_indices), sample_size, replace=False)
-        
-        sample_data = []
-        for idx in sample_indices:
-            sample_idx, t = self.train_indices[idx]
-            hist_obs = self.raw_data[sample_idx, t-self.history_len:t]
-            sample_data.append(hist_obs)
-        
-        sample_data = np.array(sample_data)  # [sample_size, history_len, channels, height, width]
-        
-        # Compute mean and std
-        self.mean = np.mean(sample_data, axis=(0, 1, 3, 4), keepdims=True)  # [1, 1, channels, 1, 1]
-        self.std = np.std(sample_data, axis=(0, 1, 3, 4), keepdims=True)
-        
-        # Avoid division by zero
-        self.std[self.std < 1e-8] = 1.0
-        
-        print(f"[INFO] DA normalization computed from {sample_size} samples")
-        print(f"[INFO] Mean: {self.mean.flatten()}, Std: {self.std.flatten()}")
-    
-    def __len__(self):
-        """Return the number of samples in the current split"""
-        return len(self.indices)
-    
-    def __getitem__(self, idx):
-        sample_idx, t = self.indices[idx]
-        
-        # Extract data on-the-fly
-        hist_obs = self.raw_data[sample_idx, t-self.history_len:t].copy()  # [history_len, channels, height, width]
-        true_state = self.raw_data[sample_idx, t].copy()  # [channels, height, width]
-        
-        # Add observation noise
-        noise = np.random.normal(0, self.obs_noise_std, hist_obs.shape)
-        hist_obs_noisy = hist_obs + noise
-        
-        # Apply normalization if needed
-        if self.normalize and hasattr(self, 'mean'):
-            hist_obs = (hist_obs - self.mean) / self.std
-            hist_obs_noisy = (hist_obs_noisy - self.mean) / self.std
-            true_state = (true_state - self.mean[0, 0]) / self.std[0, 0]  # Remove time dimension
-        
-        return (torch.tensor(hist_obs_noisy, dtype=torch.float32), 
-                torch.tensor(true_state, dtype=torch.float32),
-                torch.tensor(hist_obs, dtype=torch.float32))
-    
-    def __len__(self):
-        return len(self.indices)
-
-
-def evaluate_forward_model(forward_model, val_dataset, device='cpu', weight_matrix=None):
+def evaluate_forward_model(forward_model, val_dataset, device='cpu', weight_matrix=None, batch_size=64, lamb=0.3):
     """Evaluate forward model on validation set"""
     forward_model.eval()
-    val_dataloader = DataLoader(val_dataset, batch_size=4, shuffle=False)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     
     total_loss = 0.0
     total_fwd_loss = 0.0
@@ -369,7 +183,7 @@ def evaluate_forward_model(forward_model, val_dataset, device='cpu', weight_matr
             
             total_fwd_loss += loss_fwd.item()
             total_id_loss += loss_id.item()
-            total_loss += (loss_fwd + 0.3 * loss_id).item()  # Using same lamb=0.3
+            total_loss += (loss_fwd + lamb * loss_id).item()  # Using same lamb=0.3
             num_batches += 1
     
     avg_loss = total_loss / num_batches
@@ -433,11 +247,11 @@ def train_forward_model(forward_model,
             B = batch_data[0].shape[0]
             pre_sequences, post_sequences = [data.to(device) for data in batch_data]
             
-            # Debug: print tensor shapes for first batch
-            if epoch == 0 and batch_idx == 0:
-                print(f"[DEBUG] pre_sequences shape: {pre_sequences.shape}")
-                print(f"[DEBUG] post_sequences shape: {post_sequences.shape}")
-                print(f"[DEBUG] Expected format: [batch_size, seq_length, channels, height, width]")
+            # # Debug: print tensor shapes for first batch
+            # if epoch == 0 and batch_idx == 0:
+            #     print(f"[DEBUG] pre_sequences shape: {pre_sequences.shape}")
+            #     print(f"[DEBUG] post_sequences shape: {post_sequences.shape}")
+            #     print(f"[DEBUG] Expected format: [batch_size, seq_length, channels, height, width]")
             
             if weight_matrix is not None:
                 C = batch_data[0].shape[2]
@@ -468,7 +282,7 @@ def train_forward_model(forward_model,
         # Validation phase
         train_dataset.set_split('val')
         val_loss_epoch, val_fwd_loss_epoch, val_id_loss_epoch = evaluate_forward_model(
-            forward_model, train_dataset, device, weight_matrix)
+            forward_model, train_dataset, device, weight_matrix, batch_size=B, lamb=lamb)
         
         val_loss['total'].append(val_loss_epoch)
         val_loss['forward'].append(val_fwd_loss_epoch)
@@ -502,6 +316,8 @@ def train_forward_model(forward_model,
 
 
 def main():
+    set_seed()
+    
     # Device setup
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     print(f"[INFO] Using {device} device")
@@ -521,7 +337,7 @@ def main():
         'batch_size': 128,
         'learning_rate': 1e-3,
         'decay_rate': 0.8,
-        'lamb': 1.0,
+        'lamb': 0.5,
         'nu': 0.1,
         'subsample_ratio': 1.0, # Use only 5% of data for faster training
     }

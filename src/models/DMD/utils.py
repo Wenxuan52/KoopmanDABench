@@ -5,26 +5,30 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformer import *
 
+def count_parameters(model:nn.Module)->int:
+    """
+    Count the number of parameters in a model.
+    
+    Args:
+    - model: nn.Module, the model to count parameters.
+    
+    Returns:
+    - int, the number of parameters in the model.
+    """
+    num_params =  sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"[INFO] Number of parameters: {num_params}")
+    return num_params
+
+
 def dict2namespace(config):
-    """Convert nested dictionary to namespace"""
-    namespace = SimpleNamespace()
+    namespace = argparse.Namespace()
     for key, value in config.items():
         if isinstance(value, dict):
-            setattr(namespace, key, dict2namespace(value))
+            new_value = dict2namespace(value)
         else:
-            setattr(namespace, key, value)
+            new_value = value
+        setattr(namespace, key, new_value)
     return namespace
-
-def count_parameters(model):
-   """Count the number of trainable parameters in a model"""
-   total_params = sum(p.numel() for p in model.parameters())
-   trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-   
-   print(f"[INFO] Total parameters: {total_params:,}")
-   print(f"[INFO] Trainable parameters: {trainable_params:,}")
-   print(f"[INFO] Non-trainable parameters: {total_params - trainable_params:,}")
-   
-   return trainable_params
 
 class weighted_MSELoss(Module):
     def __init__(self):

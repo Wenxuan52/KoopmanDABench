@@ -222,6 +222,7 @@ class ERA5_forward_model(nn.Module):
             save_path_B = save_path + '/' + 'B.pt'
             print('[INFO] save B to: ', save_path_B)
             torch.save(B, save_path_B)
+            
     def compute_z_b(self, dynamics_dataset:torch.utils.data.Dataset, device:str='cpu', save_path:str=None):
         N = len(dynamics_dataset)
         z_b = torch.zeros((N, self.hidden_dim)).to(device)
