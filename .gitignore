@@ -17,3 +17,7 @@ results/
 
 *.err
 *.out
+
+saved_models/
+
+.ipynb_checkpoints/
