@@ -1,0 +1,36 @@
+# Cylinder Flow Training Configuration - GPU Optimized
+# Data settings
+data_path: "../../../data/cylinder"  # Path to training data [49, 1000, 64, 64]
+seq_length: 20  # Sequence length for cylinder flow dynamics
+
+# Model architecture
+latent_dim: 128  # Latent dimension
+input_channels: 2  # Single channel for cylinder flow
+input_size: 64  # Spatial resolution (64x64)
+
+# Training parameters - GPU Optimized
+batch_size: 128  # Batch size for cylinder data
+num_epochs: 100  # Training epochs
+learning_rate: 0.001  # Learning rate
+lambda_identity: 1.0  # Weight for reconstruction loss
+
+# Hardware settings
+gpu_id: 0  # GPU device ID
+num_workers: 4  # Parallel data loading
+use_cpu: false  # Enable GPU usage
+
+# GPU-specific optimizations
+pin_memory: true  # Speed up CPU->GPU transfer
+prefetch_factor: 2  # Prefetch data batches
+persistent_workers: true  # Keep workers alive between epochs
+
+# Save settings
+model_save_path: "./saved_models/cylinder"
+save_every_n_epochs: 20  # Save checkpoints
+
+# Advanced settings
+decay_step: 20  # Learning rate decay
+decay_rate: 0.8  # Learning rate decay factor
+gradient_clip: 1.0  # Gradient clipping
+patience: 50  # Early stopping patience
+random_seed: 42  # For reproducibility

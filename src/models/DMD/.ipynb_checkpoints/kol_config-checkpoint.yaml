@@ -1,0 +1,51 @@
+# Kolmogorov Flow Training Configuration - GPU Optimized
+
+# Data settings
+data_path: "../../../data/kolmogorov"  # Path to training data [120, 320, 64, 64]
+seq_length: 8  # Reduced for stability
+normalize: true
+train_ratio: 0.8
+
+# Enhanced model architecture
+latent_dim: 128  # 4x increase for better representation
+input_channels: 1
+input_size: 64
+
+# Conservative training parameters for stability
+batch_size: 128  # Reduced due to larger model
+num_epochs: 100
+learning_rate: 0.001  # Much lower for stability
+lambda_identity: 2.0  # Stronger reconstruction constraint
+
+# Validation and early stopping
+patience: 10  # More patience for complex model
+
+# Hardware settings
+gpu_id: 0
+num_workers: 2  # Reduced to avoid memory issues
+use_cpu: false
+pin_memory: true
+prefetch_factor: 1  # Reduced
+persistent_workers: false  # Disabled to save memory
+
+# Reproducibility
+random_seed: 42
+
+# Enhanced training stability
+decay_step: 25
+decay_rate: 0.9
+gradient_clip: 1.0  # Stricter clipping
+weight_decay: 1e-4  # L2 regularization
+
+# Progressive training strategy
+use_progressive_training: false
+initial_epochs: 20  # Train with smaller latent dim first
+progressive_steps: [64, 128, 256]  # Gradually increase latent dim
+
+# Save settings
+model_save_path: "./saved_models/kol"
+save_every_n_epochs: 5
+
+# Debug settings
+verbose_validation: true
+save_reconstructions: true  # Save sample reconstructions for inspection
