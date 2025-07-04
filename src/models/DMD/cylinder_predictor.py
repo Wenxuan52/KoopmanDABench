@@ -8,6 +8,7 @@ from torch.nn.utils import clip_grad_norm_
 from tqdm import tqdm
 import yaml
 from typing import Optional
+import matplotlib.pyplot as plt
 
 from cylinder_model import CYLINDER_C_FORWARD
 
@@ -139,16 +140,77 @@ class CylinderDynamicsDataset(Dataset):
         print(f"[INFO] DA Dataset split set to: {split} ({len(self.indices)} samples)")
 
 
+def plot_comparisons(raw_data, reconstruct, onestep, rollout, time_indices=[0, 3, 6, 9], save_dir="figures"):
+    """
+    绘制四行四列的对比图和误差图，并保存为 PNG 文件
+    参数:
+        raw_data, reconstruct, onestep, rollout: torch.Tensor of shape [T, C, H, W]
+        time_indices: 选择哪几个时间步进行绘图
+        save_dir: 图片保存的文件夹
+    """
+    os.makedirs(save_dir, exist_ok=True)
+
+    # 转为 numpy
+    raw = raw_data
+    recon = reconstruct.detach().cpu().numpy()
+    one = onestep.detach().cpu().numpy()
+    roll = rollout.detach().cpu().numpy()
+
+    titles = ['Raw', 'Reconstruct', 'One-step', 'Rollout']
+    datas = [raw, recon, one, roll]
+
+    # ------ 图 1: 对比图 -------
+    fig1, axes1 = plt.subplots(nrows=4, ncols=4, figsize=(16, 12))
+    for row in range(4):
+        for col, t in enumerate(time_indices):
+            img = datas[row][t, 0]  # 取第 0 个通道
+            ax = axes1[row, col]
+            im = ax.imshow(img, cmap='viridis')
+            ax.axis('off')
+            if row == 0:
+                ax.set_title(f"Time {t}")
+    fig1.suptitle("Prediction Comparison", fontsize=20)
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.92)
+    fig1.savefig(os.path.join(save_dir, "comparison.png"))
+    plt.close(fig1)
+
+    # ------ 图 2: 误差图 -------
+    fig2, axes2 = plt.subplots(nrows=4, ncols=4, figsize=(16, 12))
+    for col, t in enumerate(time_indices):
+        # raw image
+        img_raw = raw[t, 0]
+        axes2[0, col].imshow(img_raw, cmap='viridis')
+        axes2[0, col].axis('off')
+        if col == 0:
+            axes2[0, col].set_ylabel('Raw')
+
+        # abs error images
+        for i, pred in enumerate([recon, one, roll], start=1):
+            err = np.abs(pred[t, 0] - img_raw)
+            axes2[i, col].imshow(err, cmap='magma')
+            axes2[i, col].axis('off')
+            if col == 0:
+                axes2[i, col].set_ylabel(f"Error {titles[i]}")
+    fig2.suptitle("Error Map (vs. Raw)", fontsize=20)
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.92)
+    fig2.savefig(os.path.join(save_dir, "error.png"))
+    plt.close(fig2)
+
+
 if __name__ == '__main__':
+    foward_step = 12
+
     data_path = "../../../data/cylinder/cylinder_data.npy"
     
     dynamics_dataset = CylinderDynamicsDataset(data_path=data_path, 
-                                              seq_length=12,
+                                              seq_length=foward_step,
                                               normalize=True,
                                               subsample_ratio=1.0)
 
     sample_idx, t_start = dynamics_dataset.val_indices[4]
-    raw_data = dynamics_dataset.raw_data[sample_idx, t_start:t_start+12]
+    raw_data = dynamics_dataset.raw_data[sample_idx, t_start:t_start+foward_step]
 
     print(raw_data.shape)
     
@@ -157,26 +219,27 @@ if __name__ == '__main__':
     forward_model.C_forward = torch.load('model_weights/C_forward.pt', map_location='cpu')
     forward_model.eval()
 
-    print(forward_model)
+    print(forward_model.C_forward.shape)
 
     state = torch.tensor(raw_data, dtype=torch.float32)
     
     with torch.no_grad():
         z, encode_list = forward_model.K_S(state, return_encode_list=True)
-        reconstructed = forward_model.K_S_preimage(z, encode_list)
+        reconstruct = forward_model.K_S_preimage(z, encode_list)
 
-    print(reconstructed.shape)
+    # print(reconstruct.shape)
 
     with torch.no_grad():
         z_current = forward_model.K_S(state)
+        print(z_current.shape)
         z_next = forward_model.latent_forward(z_current)
-        next_state = forward_model.K_S_preimage(z_next)
+        onestep = forward_model.K_S_preimage(z_next)
 
-    print(next_state.shape)
+    # print(onestep.shape)
 
     predictions = []
     current_state = state[0, ...].unsqueeze(0)
-    n_steps = 12
+    n_steps = foward_step
     
     with torch.no_grad():
         for step in range(n_steps):
@@ -187,5 +250,7 @@ if __name__ == '__main__':
             predictions.append(next_state)
             current_state = next_state
             
-    
-    print(len(predictions))
+    rollout = torch.cat(predictions, dim=0)
+    # print(rollout.shape)
+
+    plot_comparisons(raw_data, reconstruct, onestep, rollout)
