@@ -1,6 +1,7 @@
 data/kolmogorov/
 data/lorenz63/
 data/Cylinder/
+data/cylinder/
 data/2DAdvdiffEq/
 data/CHAP/
 
@@ -21,3 +22,8 @@ results/
 saved_models/
 
 .ipynb_checkpoints/
+
+*.log
+
+*model_weights
+

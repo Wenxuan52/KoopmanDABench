@@ -42,9 +42,18 @@ class BaseDataset(Dataset):
         """Split data into train/val sets sequentially"""
         n_samples = len(self.data)
         train_size = int(n_samples * self.train_ratio)
+
+        sample_idx = [i for i in range(n_samples)]
+        np.random.seed(self.random_seed)
+        np.random.shuffle(sample_idx)
+
+        print(sample_idx)
         
-        self.train_data = self.data[:train_size]
-        self.val_data = self.data[train_size:]
+        train_idx = sample_idx[:train_size]
+        val_idx = sample_idx[train_size:]
+
+        self.train_data = self.data[train_idx]
+        self.val_data = self.data[val_idx]
     
     def _normalize_data(self):
         """Normalize data using mean and std from training set"""
@@ -84,7 +93,7 @@ class DatasetKol(BaseDataset):
     
     def _load_data(self):
         """Load Kolmogorov dataset"""
-        file_path = os.path.join(self.data_path, "RE1000", "kf_2d_re1000_64_120seed.npy")
+        file_path = os.path.join(self.data_path, "kf_2d_re1000_64_120seed.npy")
         
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Kolmogorov dataset not found at {file_path}")
@@ -107,7 +116,6 @@ class DatasetCylinder(BaseDataset):
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Cylinder dataset not found at {file_path}")
         
-        # Load data: [120, 320, 64, 64]
         data = np.load(file_path)
         print(f"Loaded Cylinder data with shape: {data.shape}")
         
@@ -179,6 +187,9 @@ if __name__ == "__main__":
     # print(de_train_data.max())
     # print(de_val_data.min())
     # print(de_val_data.max())
+
+    # np.save("data/kolmogorov/kolmogorov_train_data.npy", de_train_data)
+    # np.save("data/kolmogorov/kolmogorov_val_data.npy", de_val_data)
 
     cylinderdata = DatasetCylinder("data/cylinder", normalize=True, train_ratio=0.8, random_seed=42)
     print(cylinderdata.mean)

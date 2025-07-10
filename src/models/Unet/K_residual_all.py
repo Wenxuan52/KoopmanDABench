@@ -115,6 +115,6 @@ class UNET(nn.Module):
 
 
 if __name__ == "__main__":
-    model = UNET(in_channels=2, out_channels=2)
+    model = UNET(in_channels=1, out_channels=1)
     result = model(torch.randn(1, 2, 64, 64))
     print(result.shape)

@@ -6,7 +6,7 @@ from utils import PositionalEncodingLayer, View, Transformer_Based_Inv_Obs_Model
 CYLINDER_settings = {"obs_dim": [2, 64, 64], 
                     "history_len": 10, 
                     "state_dim": [2, 64, 64], 
-                    "seq_length": 10,
+                    "seq_length": 12,
                     "obs_feature_dim": [512, 128, 64, 32, 16, 8], 
                     "state_filter_feature_dim": [16, 32, 64, 128, 256]}
 
@@ -181,76 +181,40 @@ class CYLINDER_K_S_preimage(nn.Module):
                                          kernel_size=1, stride=1))
 
 
-    def forward(self, z: torch.Tensor, encode_list:list[torch.Tensor]=None):
-        if encode_list is not None:
-            # Linear transformation and reshape
-            de_state_5 = self.linear(z)
-            de_state_5 = self.relu(de_state_5)
-            de_state_5 = self.dropout(de_state_5)
-            de_state_5 = de_state_5.view(-1, self.filter_dims[4], 4, 4)  # Reshape to [batch, 256, 4, 4]
+    def forward(self, z: torch.Tensor):
+        # Linear transformation and reshape
+        de_state_5 = self.linear(z)
+        de_state_5 = self.relu(de_state_5)
+        de_state_5 = self.dropout(de_state_5)
+        de_state_5 = de_state_5.view(-1, self.filter_dims[4], 4, 4)  # Reshape to [batch, 256, 4, 4]
 
-            # First transpose conv
-            de_state_4 = self.ConvTranspose2D_size3_1(de_state_5 + encode_list[-1])
-            de_state_4 = self.relu(de_state_4)
+        # First transpose conv
+        de_state_4 = self.ConvTranspose2D_size3_1(de_state_5)
+        de_state_4 = self.relu(de_state_4)
 
-            # Second transpose conv with upsampling
-            de_state_3 = self.Upsampling(de_state_4)
-            de_state_3 = self.ConvTranspose2D_size3_2(de_state_3 + encode_list[-2])
-            de_state_3 = self.relu(de_state_3)
+        # Second transpose conv with upsampling
+        de_state_3 = self.Upsampling(de_state_4)
+        de_state_3 = self.ConvTranspose2D_size3_2(de_state_3)
+        de_state_3 = self.relu(de_state_3)
 
-            # Third transpose conv with upsampling
-            de_state_2 = self.Upsampling(de_state_3) 
-            de_state_2 = self.ConvTranspose2D_size3_3(de_state_2 + encode_list[-3])
-            de_state_2 = self.relu(de_state_2)
+        # Third transpose conv with upsampling
+        de_state_2 = self.Upsampling(de_state_3) 
+        de_state_2 = self.ConvTranspose2D_size3_3(de_state_2)
+        de_state_2 = self.relu(de_state_2)
 
-            # Fourth transpose conv with upsampling
-            de_state_1 = self.Upsampling(de_state_2)
-            de_state_1 = self.ConvTranspose2D_size5_1(de_state_1 + encode_list[-4])
-            de_state_1 = self.relu(de_state_1)
+        # Fourth transpose conv with upsampling
+        de_state_1 = self.Upsampling(de_state_2)
+        de_state_1 = self.ConvTranspose2D_size5_1(de_state_1)
+        de_state_1 = self.relu(de_state_1)
 
-            # Final transpose conv with upsampling
-            de_state_0 = self.Upsampling(de_state_1)
-            de_state_0 = self.ConvTranspose2D_size7_1(de_state_0 + encode_list[-5])
-            
-            # Output refinement
-            recon_s = self.output_conv(de_state_0)
-
-            return recon_s
+        # Final transpose conv with upsampling
+        de_state_0 = self.Upsampling(de_state_1)
+        de_state_0 = self.ConvTranspose2D_size7_1(de_state_0)
         
-        else:
-            # Linear transformation and reshape
-            de_state_5 = self.linear(z)
-            de_state_5 = self.relu(de_state_5)
-            de_state_5 = self.dropout(de_state_5)
-            de_state_5 = de_state_5.view(-1, self.filter_dims[4], 4, 4)  # Reshape to [batch, 256, 4, 4]
+        # Output refinement
+        recon_s = self.output_conv(de_state_0)
 
-            # First transpose conv
-            de_state_4 = self.ConvTranspose2D_size3_1(de_state_5)
-            de_state_4 = self.relu(de_state_4)
-
-            # Second transpose conv with upsampling
-            de_state_3 = self.Upsampling(de_state_4)
-            de_state_3 = self.ConvTranspose2D_size3_2(de_state_3)
-            de_state_3 = self.relu(de_state_3)
-
-            # Third transpose conv with upsampling
-            de_state_2 = self.Upsampling(de_state_3) 
-            de_state_2 = self.ConvTranspose2D_size3_3(de_state_2)
-            de_state_2 = self.relu(de_state_2)
-
-            # Fourth transpose conv with upsampling
-            de_state_1 = self.Upsampling(de_state_2)
-            de_state_1 = self.ConvTranspose2D_size5_1(de_state_1)
-            de_state_1 = self.relu(de_state_1)
-
-            # Final transpose conv with upsampling
-            de_state_0 = self.Upsampling(de_state_1)
-            de_state_0 = self.ConvTranspose2D_size7_1(de_state_0)
-            
-            # Output refinement
-            recon_s = self.output_conv(de_state_0)
-
-            return recon_s
+        return recon_s
 
 
 '''

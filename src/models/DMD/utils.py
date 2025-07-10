@@ -80,6 +80,22 @@ def is_symmetric(matrix, tol=1e-8):
     return torch.allclose(matrix, matrix.T, atol=tol)  
 
 
+class DoubleConv(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(DoubleConv, self).__init__()
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+
+    def forward(self, x):
+        return self.conv(x)
+
+
 class Transformer_Based_Inv_Obs_Model(nn.Module):
     def __init__(self, in_channel:int=50, out_channel:int=5, LayerNorm_type = 'WithBias',
                  ffn_expansion_factor = 2.66, bias = False, num_blocks = [2, 2, 2, 2]):

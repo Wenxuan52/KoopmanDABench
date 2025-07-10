@@ -57,9 +57,11 @@ class ERA5_forward_model(nn.Module):
         self.C_forward = None
     
     def forward(self, state: torch.Tensor):
-        z, encode_list = self.K_S(state, return_encode_list=True)
+        z = self.K_S(state)
         z_next = torch.mm(z, self.C_forward)
-        pred_s_next = self.K_S_preimage(z_next, encode_list)
+        pred_s_next = self.K_S_preimage(z_next)
+
+        
         return pred_s_next
 
     def batch_latent_forward(self, batch_z: torch.Tensor):
@@ -74,14 +76,11 @@ class ERA5_forward_model(nn.Module):
     def latent_forward(self, z: torch.Tensor):
         z_next = torch.mm(z, self.C_forward)
         return z_next
-
     
     def compute_loss(self, state_seq: torch.Tensor, state_next_seq: torch.Tensor, weight_matrix=None):
         B = state_seq.shape[0]
         device = state_seq.device
         z_seq = torch.zeros(B, self.seq_length, self.hidden_dim).to(device)
-        
-        encode_z_list = []
 
         z_next_seq = torch.zeros(B, self.seq_length, self.hidden_dim).to(device)
 
@@ -90,8 +89,7 @@ class ERA5_forward_model(nn.Module):
         # loss_distance = torch.tensor(0.0).to(device)
 
         for i in range(self.seq_length):
-            z_seq[:, i, :], encode_z_step_t = self.K_S(state_seq[:, i, :], return_encode_list=True)
-            encode_z_list.append(encode_z_step_t)
+            z_seq[:, i, :] = self.K_S(state_seq[:, i, :])
 
             z_next_seq[:, i, :] = self.K_S(state_next_seq[:, i, :])
 
@@ -104,8 +102,8 @@ class ERA5_forward_model(nn.Module):
         
         
         for i in range(self.seq_length):
-            recon_s = self.K_S_preimage(z_seq[:, i, :], encode_z_list[i])
-            recon_s_next = self.K_S_preimage(pred_z_next[:, i, :], encode_z_list[i])
+            recon_s = self.K_S_preimage(z_seq[:, i, :])
+            recon_s_next = self.K_S_preimage(pred_z_next[:, i, :])
 
 
             if weight_matrix is not None:
@@ -206,13 +204,13 @@ class ERA5_forward_model(nn.Module):
         else:
             print('[INFO] B is symmetric')
             
-        plt.imshow(Q.cpu().detach().numpy())
-        plt.colorbar()
-        plt.show()
+        # plt.imshow(Q.cpu().detach().numpy())
+        # plt.colorbar()
+        # plt.show()
         
-        plt.imshow(B.cpu().detach().numpy())
-        plt.colorbar()
-        plt.show()
+        # plt.imshow(B.cpu().detach().numpy())
+        # plt.colorbar()
+        # plt.show()
           
         if save_path is not None:
             save_path_Q = save_path + '/' + 'Q.pt'   
@@ -222,6 +220,8 @@ class ERA5_forward_model(nn.Module):
             save_path_B = save_path + '/' + 'B.pt'
             print('[INFO] save B to: ', save_path_B)
             torch.save(B, save_path_B)
+        
+        return Q, B
             
     def compute_z_b(self, dynamics_dataset:torch.utils.data.Dataset, device:str='cpu', save_path:str=None):
         N = len(dynamics_dataset)
@@ -245,6 +245,8 @@ class ERA5_forward_model(nn.Module):
             save_path_z_b = save_path + '/' + 'z_b.pt'
             print('[INFO] save z_b to: ', save_path_z_b)
             torch.save(z_b, save_path_z_b)
+        
+        return z_b
 
 
 class ERA5_inverse_model(nn.Module):

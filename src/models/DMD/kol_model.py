@@ -1,311 +1,237 @@
 from torch.nn.modules import Module
 from base import *
+from utils import PositionalEncodingLayer, View, Transformer_Based_Inv_Obs_Model
+from transformer import TransformerBlock, OverlapPatchEmbed, Downsample_Flex, LayerNorm
+import torch.nn as nn
+import torch
 import torch.nn.functional as F
 
+# State dimension = 1 channel (vorticity), 64x64 resolution for Kolmogorov flow
+KOL_settings = {"obs_dim": [1, 64, 64], 
+                "history_len": 10, 
+                "state_dim": [1, 64, 64], 
+                "seq_length": 10,
+                "obs_feature_dim": [512, 128, 64, 32, 16, 8], 
+                "state_filter_feature_dim": [16, 32, 64, 128, 256]}
+
+# Calculate the correct feature dimension after convolutions and pooling
+# Input: 64x64 -> Conv7x7 -> Pool -> 32x32 -> Conv5x5 -> Pool -> 16x16 
+# -> Conv3x3 -> Pool -> 8x8 -> Conv3x3 -> Pool -> 4x4 -> Conv3x3 -> 4x4
+# Final size: 256 channels * 4 * 4 = 4096
+KOL_settings["state_feature_dim"] = [4096, 512]
+
+
 '''
 ================================
-Features for Kolmogorov Flow system
+NN features for Kolmogorov Flow system with Transformer
 ================================
 '''
 
-class KOL_phi_S(phi_S_BASE):
-    """
-    State encoder for Kolmogorov flow
-    Much deeper architecture with residual connections and higher capacity
-    """
-    def __init__(self, config, *args, **kwargs) -> None:
-        self.input_channels = config.input_channels  # 1 for single field
-        self.input_size = config.input_size  # 64 for 64x64 resolution
-        self.latent_dim = config.latent_dim  # Increased latent dimension
+
+class KOL_K_O(nn.Module):
+    def __init__(self, *args, **kwargs) -> None:
+        super(KOL_K_O, self).__init__(*args, **kwargs)
+        self.input_dim = KOL_settings["obs_dim"][0] * KOL_settings["history_len"]
+        self.output_dim = KOL_settings["state_dim"][0] 
+
+        self.features = Transformer_Based_Inv_Obs_Model(in_channel=self.input_dim, out_channel=self.output_dim)
+
+    def forward(self, obs: torch.Tensor):
+        return self.features(obs)
+
+
+class KOL_K_S(Module):
+    """Kolmogorov Flow encoder with Transformer blocks"""
+    def __init__(self, *args, **kwargs) -> None:
+        super(KOL_K_S, self).__init__(*args, **kwargs)
+        self.input_dim, self.w, self.h = KOL_settings["state_dim"]
+        self.filter_dims = KOL_settings["state_filter_feature_dim"]
+        self.hidden_dims = KOL_settings["state_feature_dim"] # [Dim before linear, state_feature_dim]
+
+        # Initial patch embedding - similar to cylinder model's first conv
+        self.patch_embed = OverlapPatchEmbed(in_c=self.input_dim, embed_dim=self.filter_dims[0], bias=False)
         
-        # For compatibility with base.py
-        self.hidden_dims = [self.latent_dim]
+        # First convolution layer with larger kernel for feature extraction (similar to cylinder)
+        self.Conv2D_size7_1 = nn.Conv2d(in_channels=self.filter_dims[0], out_channels=self.filter_dims[1], 
+                                  kernel_size=7, stride=1, padding=3)
         
-        features = nn.ModuleList()
+        # Transformer block after initial feature extraction
+        self.transformer_block1 = TransformerBlock(dim=self.filter_dims[1], 
+                                                  num_heads=4, 
+                                                  ffn_expansion_factor=2.66, 
+                                                  bias=False, 
+                                                  LayerNorm_type='WithBias')
         
-        # Initial convolution with larger kernel for global context
-        features.append(nn.Conv2d(self.input_channels, 32, kernel_size=7, stride=1, padding=3))
-        features.append(nn.BatchNorm2d(32))
-        features.append(nn.ReLU(inplace=True))
+        # Second convolution layer
+        self.Conv2D_size5_1 = nn.Conv2d(in_channels=self.filter_dims[1], out_channels=self.filter_dims[2], 
+                                  kernel_size=5, stride=1, padding=2)
         
-        # Residual Block 1: 64x64 -> 32x32
-        features.append(self._make_residual_block(32, 64, stride=2))
+        # Another transformer block
+        self.transformer_block2 = TransformerBlock(dim=self.filter_dims[2], 
+                                                  num_heads=8, 
+                                                  ffn_expansion_factor=2.66, 
+                                                  bias=False, 
+                                                  LayerNorm_type='WithBias')
         
-        # Residual Block 2: 32x32 -> 16x16  
-        features.append(self._make_residual_block(64, 128, stride=2))
+        # Third convolution layer
+        self.Conv2D_size3_1 = nn.Conv2d(in_channels=self.filter_dims[2], out_channels=self.filter_dims[3], 
+                                              kernel_size=3, stride=1, padding=1)
         
-        # Residual Block 3: 16x16 -> 8x8
-        features.append(self._make_residual_block(128, 256, stride=2))
+        # Fourth convolution layer
+        self.Conv2D_size3_2 = nn.Conv2d(in_channels=self.filter_dims[3], out_channels=self.filter_dims[4], 
+                                              kernel_size=3, stride=1, padding=1)
         
-        # Residual Block 4: 8x8 -> 4x4
-        features.append(self._make_residual_block(256, 512, stride=2))
-        
-        # Additional residual block for more capacity
-        features.append(self._make_residual_block(512, 512, stride=1))
-        
-        # Multi-scale feature aggregation
-        features.append(nn.AdaptiveAvgPool2d(1))  # Global context
-        features.append(nn.Flatten())
-        
-        # More sophisticated FC layers
-        features.append(nn.Linear(512, 1024))
-        features.append(nn.ReLU(inplace=True))
-        features.append(nn.Dropout(0.1))
-        
-        features.append(nn.Linear(1024, 512))
-        features.append(nn.ReLU(inplace=True))
-        features.append(nn.Dropout(0.1))
-        
-        features.append(nn.Linear(512, self.latent_dim))
-        
-        features = nn.Sequential(*features)
-        super(KOL_phi_S, self).__init__(features, *args, **kwargs)
-        
-        print(f'[INFO] KOL_phi_S: Input channels={self.input_channels}, '
-              f'Input size={self.input_size}x{self.input_size}, '
-              f'Output dim={self.latent_dim}')
-        print(f'[INFO] architecture with residual connections and higher capacity')
+        # Final transformer block for high-level feature processing
+        self.transformer_block3 = TransformerBlock(dim=self.filter_dims[4], 
+                                                  num_heads=16, 
+                                                  ffn_expansion_factor=2.66, 
+                                                  bias=False, 
+                                                  LayerNorm_type='WithBias')
+
+        self.flatten = nn.Flatten()
+        self.pooling = nn.AvgPool2d(kernel_size=2, stride=2)
+        self.relu = nn.ReLU()
+        self.gelu = nn.GELU()  # Better activation for transformer
+        self.dropout = nn.Dropout(0.1)  # Add dropout for regularization
     
-    def _make_residual_block(self, in_channels, out_channels, stride=1):
-        """Create a residual block"""
-        layers = []
-        
-        # Main path
-        layers.append(nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1))
-        layers.append(nn.BatchNorm2d(out_channels))
-        layers.append(nn.ReLU(inplace=True))
-        
-        layers.append(nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1))
-        layers.append(nn.BatchNorm2d(out_channels))
-        
-        # Skip connection
-        if stride != 1 or in_channels != out_channels:
-            shortcut = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride),
-                nn.BatchNorm2d(out_channels)
-            )
-        else:
-            shortcut = nn.Identity()
-        
-        return ResidualBlock(nn.Sequential(*layers), shortcut)
+        self.linear = nn.Linear(self.hidden_dims[0], self.hidden_dims[1])
+
+    def forward(self, state: torch.Tensor):
+        # Patch embedding
+        x = self.patch_embed(state)
+
+        # First layer: 7x7 conv + transformer + pooling
+        en_state_1 = self.Conv2D_size7_1(x)
+        en_state_1 = self.transformer_block1(en_state_1)  # Apply transformer
+        en_state_1 = self.pooling(en_state_1)
+        en_state_1 = self.gelu(en_state_1)
+
+        # Second layer: 5x5 conv + transformer + pooling
+        en_state_2 = self.Conv2D_size5_1(en_state_1)
+        en_state_2 = self.transformer_block2(en_state_2)  # Apply transformer
+        en_state_2 = self.gelu(en_state_2)
+        en_state_2 = self.pooling(en_state_2)
+
+        # Third layer: 3x3 conv + pooling
+        en_state_3 = self.Conv2D_size3_1(en_state_2)
+        en_state_3 = self.pooling(en_state_3)
+        en_state_3 = self.gelu(en_state_3)
+
+        # Fourth layer: 3x3 conv + pooling
+        en_state_4 = self.Conv2D_size3_2(en_state_3)
+        en_state_4 = self.pooling(en_state_4)
+        en_state_4 = self.gelu(en_state_4)
+
+        # Final transformer processing
+        en_state_5 = self.transformer_block3(en_state_4)
+        en_state_5 = self.gelu(en_state_5)
+        en_state_5 = self.dropout(en_state_5)
+
+        # Flatten and linear transformation
+        en_state_5 = self.flatten(en_state_5)
+        z = self.linear(en_state_5)
+
+        return z
 
 
-class ResidualBlock(nn.Module):
-    """Residual block implementation"""
-    def __init__(self, main_path, shortcut):
-        super(ResidualBlock, self).__init__()
-        self.main_path = main_path
-        self.shortcut = shortcut
-        self.relu = nn.ReLU(inplace=True)
-    
-    def forward(self, x):
-        residual = self.shortcut(x)
-        out = self.main_path(x)
-        out += residual
-        out = self.relu(out)
-        return out
+class KOL_K_S_preimage(nn.Module):
+    """Kolmogorov Flow decoder - same as cylinder model but adapted for 1 channel"""
+    def __init__(self, *args, **kwargs) -> None:
+        super(KOL_K_S_preimage, self).__init__(*args, **kwargs)
+        self.input_dim, self.w, self.h = KOL_settings["state_dim"]
+        self.filter_dims = KOL_settings["state_filter_feature_dim"]
+        self.hidden_dims = KOL_settings["state_feature_dim"] # [Dim before linear, state_feature_dim]
 
-
-class KOL_phi_inv_S(phi_inv_S_BASE):
-    """
-    State decoder for Kolmogorov flow
-    """
-    def __init__(self, config, *args, **kwargs) -> None:
-        self.input_channels = config.input_channels
-        self.input_size = config.input_size
-        self.latent_dim = config.latent_dim
+        self.linear = nn.Linear(self.hidden_dims[1], self.hidden_dims[0])
         
-        # For compatibility with base.py
-        self.hidden_dims = [self.latent_dim]
+        # Transpose convolution layers (reverse order of encoder)
+        self.ConvTranspose2D_size3_1 = nn.ConvTranspose2d(in_channels=self.filter_dims[4], out_channels=self.filter_dims[3], 
+                                                          kernel_size=3, stride=1, padding=1)
+        self.ConvTranspose2D_size3_2 = nn.ConvTranspose2d(in_channels=self.filter_dims[3], out_channels=self.filter_dims[2],
+                                                          kernel_size=3, stride=1, padding=1)
+        self.ConvTranspose2D_size3_3 = nn.ConvTranspose2d(in_channels=self.filter_dims[2], out_channels=self.filter_dims[1],
+                                                          kernel_size=3, stride=1, padding=1)
         
-        features = nn.ModuleList()
+        self.Upsampling = nn.UpsamplingBilinear2d(scale_factor=2)
+        self.ConvTranspose2D_size5_1 = nn.ConvTranspose2d(in_channels=self.filter_dims[1], out_channels=self.filter_dims[0],
+                                                          kernel_size=5, stride=1, padding=2)
         
-        # FC layers
-        features.append(nn.Linear(self.latent_dim, 512))
-        features.append(nn.ReLU(inplace=True))
-        features.append(nn.Dropout(0.1))
+        self.ConvTranspose2D_size7_1 = nn.ConvTranspose2d(in_channels=self.filter_dims[0], out_channels=self.input_dim,
+                                                          kernel_size=7, stride=1, padding=3)
         
-        features.append(nn.Linear(512, 1024))
-        features.append(nn.ReLU(inplace=True))
-        features.append(nn.Dropout(0.1))
+        self.relu = nn.ReLU()
+        self.gelu = nn.GELU()
+        self.dropout = nn.Dropout(0.1)
         
-        features.append(nn.Linear(1024, 512 * 4 * 4))
-        features.append(nn.ReLU(inplace=True))
-        
-        # Reshape
-        features.append(View((-1, 512, 4, 4)))
-        
-        # transposed convolutions with residual connections
-        # 4x4 -> 8x8
-        features.append(self._make_transpose_residual_block(512, 256, stride=2))
-        
-        # 8x8 -> 16x16
-        features.append(self._make_transpose_residual_block(256, 128, stride=2))
-        
-        # 16x16 -> 32x32
-        features.append(self._make_transpose_residual_block(128, 64, stride=2))
-        
-        # 32x32 -> 64x64
-        features.append(nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1))
-        features.append(nn.BatchNorm2d(32))
-        features.append(nn.ReLU(inplace=True))
-        
-        # Final output layer
-        features.append(nn.Conv2d(32, self.input_channels, kernel_size=3, stride=1, padding=1))
-        
-        features = nn.Sequential(*features)
-        super(KOL_phi_inv_S, self).__init__(features, *args, **kwargs)
-        
-        print(f'[INFO] KOL_phi_inv_S: Output channels={self.input_channels}, '
-              f'Output size={self.input_size}x{self.input_size}, '
-              f'Input dim={self.latent_dim}')
-    
-    def _make_transpose_residual_block(self, in_channels, out_channels, stride=2):
-        """Create a transpose residual block"""
-        main_path = nn.Sequential(
-            nn.ConvTranspose2d(in_channels, out_channels, kernel_size=4, stride=stride, padding=1),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(out_channels)
+        # Output refinement layers - adapted for 1 channel output
+        self.output_conv = nn.Sequential(
+            nn.Conv2d(in_channels=self.input_dim, out_channels=32, kernel_size=3, stride=1, padding=1),
+            nn.GELU(),
+            nn.Conv2d(in_channels=32, out_channels=16, kernel_size=3, stride=1, padding=1),
+            nn.GELU(),
+            nn.Conv2d(in_channels=16, out_channels=self.input_dim, kernel_size=1, stride=1)
         )
+
+    def forward(self, z: torch.Tensor):
+        # Linear transformation and reshape
+        de_state_5 = self.linear(z)
+        de_state_5 = self.gelu(de_state_5)
+        de_state_5 = self.dropout(de_state_5)
+        de_state_5 = de_state_5.view(-1, self.filter_dims[4], 4, 4)  # Reshape to [batch, 256, 4, 4]
+
+        # First transpose conv
+        de_state_4 = self.ConvTranspose2D_size3_1(de_state_5)
+        de_state_4 = self.gelu(de_state_4)
+
+        # Second transpose conv with upsampling
+        de_state_3 = self.Upsampling(de_state_4)
+        de_state_3 = self.ConvTranspose2D_size3_2(de_state_3)
+        de_state_3 = self.gelu(de_state_3)
+
+        # Third transpose conv with upsampling
+        de_state_2 = self.Upsampling(de_state_3) 
+        de_state_2 = self.ConvTranspose2D_size3_3(de_state_2)
+        de_state_2 = self.gelu(de_state_2)
+
+        # Fourth transpose conv with upsampling
+        de_state_1 = self.Upsampling(de_state_2)
+        de_state_1 = self.ConvTranspose2D_size5_1(de_state_1)
+        de_state_1 = self.gelu(de_state_1)
+
+        # Final transpose conv with upsampling
+        de_state_0 = self.Upsampling(de_state_1)
+        de_state_0 = self.ConvTranspose2D_size7_1(de_state_0)
         
-        shortcut = nn.Sequential(
-            nn.ConvTranspose2d(in_channels, out_channels, kernel_size=4, stride=stride, padding=1),
-            nn.BatchNorm2d(out_channels)
-        )
-        
-        return TransposeResidualBlock(main_path, shortcut)
+        # Output refinement
+        recon_s = self.output_conv(de_state_0)
 
-
-class TransposeResidualBlock(nn.Module):
-    """Transpose residual block"""
-    def __init__(self, main_path, shortcut):
-        super(TransposeResidualBlock, self).__init__()
-        self.main_path = main_path
-        self.shortcut = shortcut
-        self.relu = nn.ReLU(inplace=True)
-    
-    def forward(self, x):
-        residual = self.shortcut(x)
-        out = self.main_path(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-# Helper class for reshaping
-class View(nn.Module):
-    def __init__(self, shape):
-        super(View, self).__init__()
-        self.shape = shape
-    
-    def forward(self, x):
-        return x.view(*self.shape)
+        return recon_s
 
 
 '''
 =============================
-Forward Model for Kolmogorov Flow
+Operators for Kolmogorov Flow system
 =============================
 '''
 
-class KOL_forward_model(forward_model):
-    """
-    forward model for Kolmogorov flow using deeper architecture
-    """
-    def __init__(self, config, *args, **kwargs) -> None:
-        phi_S = KOL_phi_S(config)
-        phi_inv_S = KOL_phi_inv_S(config)
-        seq_length = config.seq_length
-        
-        super(KOL_forward_model, self).__init__(
-            phi_S=phi_S,
-            phi_inv_S=phi_inv_S, 
-            seq_length=seq_length,
-            *args, **kwargs
-        )
-        
-        print(f'[INFO] KOL_forward_model initialized')
-        print(f'[INFO] Latent dimension: {self.hidden_dim}')
-        print(f'[INFO] Model capacity significantly increased for chaotic dynamics')
-    
-    def verify_model(self, sample_input):
-        """
-        Verify the model architecture with a sample input
-        Args:
-            sample_input: torch.Tensor of shape [B, C, H, W]
-        """
-        print(f'[INFO] Verifying model with input shape: {sample_input.shape}')
-        
-        with torch.no_grad():
-            # Test encoder
-            z = self.phi_S(sample_input)
-            print(f'[INFO] Encoded shape: {z.shape}')
-            
-            # Test decoder
-            reconstructed = self.phi_inv_S(z)
-            print(f'[INFO] Reconstructed shape: {reconstructed.shape}')
-            
-            # Check if reconstruction shape matches input
-            if reconstructed.shape == sample_input.shape:
-                print('[INFO] ✓ model architecture verified successfully!')
-                
-                # Calculate reconstruction error
-                recon_error = F.mse_loss(reconstructed, sample_input)
-                print(f'[INFO] Initial reconstruction error: {recon_error.item():.6f}')
-            else:
-                print(f'[ERROR] Shape mismatch! Input: {sample_input.shape}, '
-                      f'Output: {reconstructed.shape}')
-        
-        # Count parameters
-        total_params = sum(p.numel() for p in self.parameters())
-        encoder_params = sum(p.numel() for p in self.phi_S.parameters())
-        decoder_params = sum(p.numel() for p in self.phi_inv_S.parameters())
-        
-        print(f'[INFO] Total parameters: {total_params:,}')
-        print(f'[INFO] Encoder parameters: {encoder_params:,}')
-        print(f'[INFO] Decoder parameters: {decoder_params:,}')
-                
-        return z, reconstructed
+
+class KOL_C_FORWARD(ERA5_forward_model):
+    def __init__(self, *args, **kwargs) -> None:
+        K_S = KOL_K_S()
+        K_S_preimage = KOL_K_S_preimage()
+        seq_length = KOL_settings["seq_length"]
+        super(KOL_C_FORWARD, self).__init__(K_S=K_S,
+                                           K_S_preimage=K_S_preimage, 
+                                           seq_length=seq_length,
+                                           *args, **kwargs)
 
 
-# configuration class
-class KolmogorovConfig:
-    def __init__(self):
-        # Data dimensions
-        self.input_channels = 1      # Single channel
-        self.input_size = 64         # 64x64 spatial resolution
-        self.seq_length = 10         # Time sequence length
-        
-        # model architecture
-        self.latent_dim = 256        # Significantly increased latent space
-        
-        # Training parameters
-        self.batch_size = 4          # Smaller due to larger model
-        self.learning_rate = 0.0005  # Lower learning rate for stability
-        self.num_epochs = 100
-
-
-if __name__ == "__main__":
-    # Test the model
-    config = KolmogorovConfig()
-    
-    # Create model
-    model = KOL_forward_model(config)
-    
-    # Create sample data
-    sample_batch = torch.randn(2, 1, 64, 64)
-    
-    # Verify the model
-    print("Testing KOL_forward_model...")
-    latent, reconstructed = model.verify_model(sample_batch)
-    
-    # Count parameters
-    total_params = sum(p.numel() for p in model.parameters())
-    print(f"\n Model summary:")
-    print(f"- Total parameters: {total_params:,}")
-    print(f"- Input shape: [B, 1, 64, 64]")
-    print(f"- Latent shape: [B, {config.latent_dim}]")
-    print(f"- Output shape: [B, 1, 64, 64]")
-    print(f"- Compression ratio: {4096/config.latent_dim:.1f}:1")
+class KOL_C_INVERSE(ERA5_inverse_model):
+    def __init__(self, *args, **kwargs) -> None:
+        K_O = KOL_K_O()
+        K_S = KOL_K_S()
+        K_S_preimage = KOL_K_S_preimage()
+        super(KOL_C_INVERSE, self).__init__(K_O=K_O,
+                                           K_S=K_S,
+                                           K_S_preimage=K_S_preimage, 
+                                           *args, **kwargs)
