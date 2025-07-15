@@ -4,9 +4,17 @@ import torch.nn.functional as F
 # import tltorch
 import torch.utils
 import torch.utils.data
-from utils import is_symmetric, weighted_MSELoss
 import matplotlib.pyplot as plt
 from torch import Tensor
+
+import os
+import sys
+current_directory = os.getcwd()
+src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", ".."))
+sys.path.append(src_directory)
+
+from src.utils.utils import is_symmetric, weighted_MSELoss
+
 
 # Featrues 
 class K_O_BASE(nn.Module):
@@ -46,10 +54,10 @@ class K_S_preimage_BASE(nn.Module):
 
 
 
-class ERA5_forward_model(nn.Module):
+class base_forward_model(nn.Module):
     def __init__(self, K_S:nn.Module, K_S_preimage:nn.Module, 
                        seq_length: int, *args, **kwargs) -> None:
-        super(ERA5_forward_model, self).__init__(*args, **kwargs)
+        super(base_forward_model, self).__init__(*args, **kwargs)
         self.K_S = K_S
         self.K_S_preimage = K_S_preimage
         self.hidden_dim = K_S.hidden_dims[-1]
@@ -247,106 +255,3 @@ class ERA5_forward_model(nn.Module):
             torch.save(z_b, save_path_z_b)
         
         return z_b
-
-
-class ERA5_inverse_model(nn.Module):
-    def __init__(self, K_O:nn.Module, K_S:nn.Module, K_S_preimage:nn.Module, *args, **kwargs) -> None:
-        super(ERA5_inverse_model, self).__init__(*args, **kwargs)
-        self.K_O = K_O
-        self.K_S = K_S
-        self.K_S_preimage = K_S_preimage
-        self.freeze_K_S()
-        self.freeze_K_S_preimage()
-        
-     
-    def forward(self, obs: Tensor):
-         
-        
-        # state_analyzed = self.state_feature_decoder(state_feature_analyzed)
-        # state_feature = self.state_feature_encoder(state_feature_analyzed)
-        return self.K_O(obs)
-    
-    def compute_loss(self, hist: Tensor, obs: Tensor, state: Tensor, weight_matrix=None):
-        if weight_matrix is not None:
-            pred_s = self.K_O(obs)
-            loss = weighted_MSELoss()(pred_s, state, weight_matrix).sum()
-        else:
-            pred_s = self.K_O(obs)
-            loss = F.mse_loss(pred_s, state)
-        return loss
-    
-    def freeze_K_S(self):
-         print('[INFO] Freezing K_S')
-         for param in self.K_S.parameters():
-             param.requires_grad = False
-    
-    def defreeze_K_S(self):
-         print('[INFO] Defreezing K_S')
-         for param in self.K_S.parameters():
-             param.requires_grad = True
-             
-    def freeze_K_S_preimage(self):
-            print('[INFO] Freezing K_S_preimage')
-            for param in self.K_S_preimage.parameters():
-                param.requires_grad = False
-    
-    def defreeze_K_S_preimage(self):
-            print('[INFO] Defreezing K_S_preimage')
-            for param in self.K_S_preimage.parameters():
-                param.requires_grad = True
-    
-    def save_model(self, path):
-        self.to('cpu')
-        # if not self.direct_sum:
-        #     model_path = path + '/' + 'inv_obs_model_tensor_product.pt'
-        #     print('[INFO] Saving DA_Model to: ', model_path)
-        #     torch.save(self.state_dict(), model_path)
-        # else:
-        model_path = path + '/' + 'inverse_model.pt'
-        print('[INFO] Saving DA_Model to: ', model_path)
-        torch.save(self.state_dict(), model_path)
-
-
-    def compute_R(self, da_dataset:torch.utils.data.Dataset, device:str="cpu", save_path:str=None):
-         # R Compute the Covariance Matrix Cov(o_t,s_t)
-         N = len(da_dataset)
-         R = torch.zeros((N, self.K_S.hidden_dims[-1])).to(device)
-         
-         dataloader = torch.utils.data.DataLoader(da_dataset, batch_size=256, shuffle=False)
-         
-         for i, batch_data in enumerate(dataloader):
-             obs, state, hist = batch_data
-             obs = obs.to(device)
-             state = state.to(device)
-             hist = hist.to(device)
-             Bs = hist.shape[0]
-             K_s = self.K_S(state)
-             pred_K_s = self.forward(obs=obs, hist=hist)
-             obs_error = K_s - pred_K_s
-             
-             for j in range(Bs):
-                 R[i*Bs+j] = obs_error[j]
-                 
-         R = torch.cov(R.T)    
-         R = R.to("cpu")
-         R = torch.pinverse(R + 1e-1*torch.eye(self.K_S.hidden_dims[-1]))
-         
-         
-         if not is_symmetric(R):
-            print('[INFO] R is not symmetric, using symmetriziation')
-            R = 0.5*(R + R.T)
-         else:
-            print('[INFO] R is symmetric')
-
-         plt.imshow(R.cpu().detach().numpy())
-         plt.colorbar()
-         plt.show()
-          
-          
-         if save_path is not None: 
-             save_path_R = save_path + '/' + 'R.pt' if not self.direct_sum else save_path + '/' + 'R_direct_sum.pt'  
-             
-             print('[INFO] save R to: ', save_path_R)    
-             
-             torch.save(R, save_path_R)
-             

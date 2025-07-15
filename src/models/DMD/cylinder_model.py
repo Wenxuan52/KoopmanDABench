@@ -1,6 +1,5 @@
 from torch.nn.modules import Module
 from base import *
-from utils import PositionalEncodingLayer, View, Transformer_Based_Inv_Obs_Model
 
 # State dimension = 2 channels, 64x64 resolution
 CYLINDER_settings = {"obs_dim": [2, 64, 64], 
@@ -22,18 +21,6 @@ CYLINDER_settings["state_feature_dim"] = [4096, 512]
 NN features for Cylinder Flow system
 ================================
 '''
-
-
-class CYLINDER_K_O(nn.Module):
-    def __init__(self, *args, **kwargs) -> None:
-        super(CYLINDER_K_O, self).__init__(*args, **kwargs)
-        self.input_dim = CYLINDER_settings["obs_dim"][0] * CYLINDER_settings["history_len"]
-        self.output_dim = CYLINDER_settings["state_dim"][0] 
-
-        self.features = Transformer_Based_Inv_Obs_Model(in_channel=self.input_dim, out_channel=self.output_dim)
-
-    def forward(self, obs: torch.Tensor):
-        return self.features(obs)
 
 
 class CYLINDER_K_S(Module):
@@ -71,76 +58,37 @@ class CYLINDER_K_S(Module):
         self.linear = nn.Linear(self.hidden_dims[0], self.hidden_dims[1])
 
 
-    def forward(self, state: torch.Tensor, return_encode_list=False):
-        if return_encode_list:
-            encode_list = [state.clone()]
+    def forward(self, state: torch.Tensor):
+        # First layer: 7x7 conv + pooling
+        en_state_1 = self.Conv2D_size7_1(state)
+        en_state_1 = self.pooling(en_state_1)
+        en_state_1 = self.relu(en_state_1)
 
-            # First layer: 7x7 conv + pooling
-            en_state_1 = self.Conv2D_size7_1(state)
-            encode_list.append(en_state_1.clone())
-            en_state_1 = self.pooling(en_state_1)
-            en_state_1 = self.relu(en_state_1)
+        # Second layer: 5x5 conv + pooling
+        en_state_2 = self.Conv2D_size5_1(en_state_1)
+        en_state_2 = self.relu(en_state_2)
+        en_state_2 = self.pooling(en_state_2)
 
-            # Second layer: 5x5 conv + pooling
-            en_state_2 = self.Conv2D_size5_1(en_state_1)
-            encode_list.append(en_state_2.clone())
-            en_state_2 = self.relu(en_state_2)
-            en_state_2 = self.pooling(en_state_2)
+        # Third layer: 3x3 conv + pooling
+        en_state_3 = self.Conv2D_size3_1(en_state_2)
+        en_state_3 = self.pooling(en_state_3)
+        en_state_3 = self.relu(en_state_3)
 
-            # Third layer: 3x3 conv + pooling
-            en_state_3 = self.Conv2D_size3_1(en_state_2)
-            encode_list.append(en_state_3.clone())
-            en_state_3 = self.pooling(en_state_3)
-            en_state_3 = self.relu(en_state_3)
+        # Fourth layer: 3x3 conv + pooling
+        en_state_4 = self.Conv2D_size3_2(en_state_3)
+        en_state_4 = self.pooling(en_state_4)
+        en_state_4 = self.relu(en_state_4)
 
-            # Fourth layer: 3x3 conv + pooling
-            en_state_4 = self.Conv2D_size3_2(en_state_3)
-            encode_list.append(en_state_4.clone())
-            en_state_4 = self.pooling(en_state_4)
-            en_state_4 = self.relu(en_state_4)
+        # Fifth layer: 3x3 conv
+        en_state_5 = self.Conv2D_size3_3(en_state_4)
+        en_state_5 = self.relu(en_state_5)
+        en_state_5 = self.dropout(en_state_5)
 
-            # Fifth layer: 3x3 conv
-            en_state_5 = self.Conv2D_size3_3(en_state_4)
-            encode_list.append(en_state_5.clone())
-            en_state_5 = self.relu(en_state_5)
-            en_state_5 = self.dropout(en_state_5)
+        # Flatten and linear transformation
+        en_state_5 = self.flatten(en_state_5)
+        z = self.linear(en_state_5)
 
-            # Flatten and linear transformation
-            en_state_5 = self.flatten(en_state_5)
-            z = self.linear(en_state_5)
-
-            return z, encode_list
-        else:
-            # First layer: 7x7 conv + pooling
-            en_state_1 = self.Conv2D_size7_1(state)
-            en_state_1 = self.pooling(en_state_1)
-            en_state_1 = self.relu(en_state_1)
-
-            # Second layer: 5x5 conv + pooling
-            en_state_2 = self.Conv2D_size5_1(en_state_1)
-            en_state_2 = self.relu(en_state_2)
-            en_state_2 = self.pooling(en_state_2)
-
-            # Third layer: 3x3 conv + pooling
-            en_state_3 = self.Conv2D_size3_1(en_state_2)
-            en_state_3 = self.pooling(en_state_3)
-            en_state_3 = self.relu(en_state_3)
-
-            # Fourth layer: 3x3 conv + pooling
-            en_state_4 = self.Conv2D_size3_2(en_state_3)
-            en_state_4 = self.pooling(en_state_4)
-            en_state_4 = self.relu(en_state_4)
-
-            # Fifth layer: 3x3 conv
-            en_state_5 = self.Conv2D_size3_3(en_state_4)
-            en_state_5 = self.relu(en_state_5)
-            en_state_5 = self.dropout(en_state_5)
-
-            # Flatten and linear transformation
-            en_state_5 = self.flatten(en_state_5)
-            z = self.linear(en_state_5)
-
-            return z
+        return z
 
 
 class CYLINDER_K_S_preimage(nn.Module):
@@ -224,7 +172,7 @@ Operators for Cylinder Flow system
 '''
 
 
-class CYLINDER_C_FORWARD(ERA5_forward_model):
+class CYLINDER_C_FORWARD(base_forward_model):
     def __init__(self, *args, **kwargs) -> None:
         K_S = CYLINDER_K_S()
         K_S_preimage = CYLINDER_K_S_preimage()
@@ -232,15 +180,4 @@ class CYLINDER_C_FORWARD(ERA5_forward_model):
         super(CYLINDER_C_FORWARD, self).__init__(K_S=K_S,
                                                 K_S_preimage=K_S_preimage, 
                                                 seq_length=seq_length,
-                                                *args, **kwargs)
-
-
-class CYLINDER_C_INVERSE(ERA5_inverse_model):
-    def __init__(self, *args, **kwargs) -> None:
-        K_O = CYLINDER_K_O()
-        K_S = CYLINDER_K_S()
-        K_S_preimage = CYLINDER_K_S_preimage()
-        super(CYLINDER_C_INVERSE, self).__init__(K_O=K_O,
-                                                K_S=K_S,
-                                                K_S_preimage=K_S_preimage, 
                                                 *args, **kwargs)

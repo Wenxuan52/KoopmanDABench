@@ -1,17 +1,19 @@
-import os
-import sys
 import numpy as np
 import torch
-from torch.utils.data import Dataset, DataLoader
-from torch.optim import Adam
-from torch.nn.utils import clip_grad_norm_
-from tqdm import tqdm
-import yaml
-from typing import Optional
+import torch.nn.functional as F
+import numpy as np
+from skimage.metrics import structural_similarity as ssim
 import matplotlib.pyplot as plt
 
 from cylinder_model import CYLINDER_C_FORWARD
-from Dataset import CylinderDynamicsDataset
+
+import os
+import sys
+current_directory = os.getcwd()
+src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", ".."))
+sys.path.append(src_directory)
+
+from src.utils.Dataset import CylinderDynamicsDataset
 
 
 def plot_comparisons(raw_data, reconstruct, onestep, rollout, time_indices=[1, 4, 7, 10], save_dir="figures"):
@@ -82,10 +84,98 @@ def plot_comparisons(raw_data, reconstruct, onestep, rollout, time_indices=[1, 4
     plt.close(fig2)
 
 
-if __name__ == '__main__':
-    start_T = 739
+def compute_metrics(groundtruth, reconstruction, onestep, rollout):
+    def calculate_metrics(pred, gt):
+        pred_np = pred.detach().cpu().numpy()
+        gt_np = gt.detach().cpu().numpy()
+        
+        # MSE
+        mse = F.mse_loss(pred, gt).item()
+        
+        # MAE
+        mae = F.l1_loss(pred, gt).item()
+        
+        # Relative L2
+        l2_error = torch.norm(pred - gt)
+        l2_gt = torch.norm(gt)
+        relative_l2 = (l2_error / l2_gt).item()
+        
+        # SSIM
+        ssim_values = []
+        for t in range(pred_np.shape[0]):
+            ssim_val = ssim(gt_np[t, 0], pred_np[t, 0], data_range=gt_np[t, 0].max() - gt_np[t, 0].min())
+            ssim_values.append(ssim_val)
+        avg_ssim = np.mean(ssim_values)
+        
+        return {
+            'MSE': mse,
+            'MAE': mae,
+            'Relative_L2': relative_l2,
+            'SSIM': avg_ssim
+        }
     
-    prediction_step = 22
+    results = {}
+    results['reconstruction'] = calculate_metrics(reconstruction, groundtruth)
+    results['onestep'] = calculate_metrics(onestep, groundtruth)
+    results['rollout'] = calculate_metrics(rollout, groundtruth)
+    
+    return results
+
+
+def compute_temporal_metrics(groundtruth, reconstruction, onestep, rollout):
+    def calculate_temporal_metrics(pred, gt):
+        T = pred.shape[0]
+        pred_np = pred.detach().cpu().numpy()
+        gt_np = gt.detach().cpu().numpy()
+        
+        mse_list = []
+        mae_list = []
+        relative_l2_list = []
+        ssim_list = []
+        
+        for t in range(T):
+            pred_t = pred[t:t+1]  # [1, 1, 64, 64]
+            gt_t = gt[t:t+1]      # [1, 1, 64, 64]
+            
+            # MSE
+            mse = F.mse_loss(pred_t, gt_t).item()
+            mse_list.append(mse)
+            
+            # MAE
+            mae = F.l1_loss(pred_t, gt_t).item()
+            mae_list.append(mae)
+            
+            # Relative L2
+            l2_error = torch.norm(pred_t - gt_t)
+            l2_gt = torch.norm(gt_t)
+            relative_l2 = (l2_error / l2_gt).item()
+            relative_l2_list.append(relative_l2)
+            
+            # SSIM
+            ssim_val = ssim(gt_np[t, 0], pred_np[t, 0], data_range=gt_np[t, 0].max() - gt_np[t, 0].min())
+            ssim_list.append(ssim_val)
+        
+        return {
+            'MSE': mse_list,
+            'MAE': mae_list,
+            'Relative_L2': relative_l2_list,
+            'SSIM': ssim_list
+        }
+    
+    results = {}
+    results['reconstruction'] = calculate_temporal_metrics(reconstruction, groundtruth)
+    results['onestep'] = calculate_temporal_metrics(onestep, groundtruth)
+    results['rollout'] = calculate_temporal_metrics(rollout, groundtruth)
+    
+    return results
+
+
+if __name__ == '__main__':
+    fig_save_path = '../../../results/DMD/figures/'
+    
+    start_T = 499
+    
+    prediction_step = 500
     
     foward_step = 12
 
@@ -105,17 +195,17 @@ if __name__ == '__main__':
 
     groundtruth = cyl_val_dataset.data[val_idx, start_T:start_T + prediction_step, ...]
     groundtruth = torch.tensor(groundtruth, dtype=torch.float32)
-    print(groundtruth.shape)
-    print(groundtruth.min())
-    print(groundtruth.max())
+    # print(groundtruth.shape)
+    # print(groundtruth.min())
+    # print(groundtruth.max())
     
     raw_data_uv = (groundtruth[:, 0, :, :] ** 2 + groundtruth[:, 1, :, :] ** 2) ** 0.5
     raw_data_uv = raw_data_uv.unsqueeze(1)
     print(raw_data_uv.shape)
     
     forward_model = CYLINDER_C_FORWARD()
-    forward_model.load_state_dict(torch.load('best_cyl_model_weights/forward_model.pt', weights_only=True, map_location='cpu'))
-    forward_model.C_forward = torch.load('best_cyl_model_weights/C_forward.pt', weights_only=True, map_location='cpu')
+    forward_model.load_state_dict(torch.load('cyl_model_weights/forward_model.pt', weights_only=True, map_location='cpu'))
+    forward_model.C_forward = torch.load('cyl_model_weights/C_forward.pt', weights_only=True, map_location='cpu')
     forward_model.eval()
 
     print(forward_model)
@@ -123,9 +213,9 @@ if __name__ == '__main__':
 
     normalize_groundtruth = cyl_val_dataset.normalize(groundtruth)
 
-    print(normalize_groundtruth.shape)
-    print(normalize_groundtruth.min())
-    print(normalize_groundtruth.max())
+    # print(normalize_groundtruth.shape)
+    # print(normalize_groundtruth.min())
+    # print(normalize_groundtruth.max())
 
     state = normalize_groundtruth
     
@@ -137,9 +227,9 @@ if __name__ == '__main__':
     de_reconstruct = denorm(reconstruct)
     de_reconstruct_uv = (de_reconstruct[:, 0, :, :] ** 2 + de_reconstruct[:, 1, :, :] ** 2) ** 0.5
     de_reconstruct_uv = de_reconstruct_uv.unsqueeze(1)
-    print(de_reconstruct_uv.shape)
-    print(de_reconstruct_uv.min())
-    print(de_reconstruct_uv.max())
+    # print(de_reconstruct_uv.shape)
+    # print(de_reconstruct_uv.min())
+    # print(de_reconstruct_uv.max())
 
     with torch.no_grad():
         z_current = forward_model.K_S(state)
@@ -150,13 +240,13 @@ if __name__ == '__main__':
     de_onestep = denorm(onestep)
     de_onestep_uv = (de_onestep[:, 0, :, :] ** 2 + de_onestep[:, 1, :, :] ** 2) ** 0.5
     de_onestep_uv = de_onestep_uv.unsqueeze(1)
-    print(de_onestep_uv.shape)
-    print(de_onestep_uv.min())
-    print(de_onestep_uv.max())
+    # print(de_onestep_uv.shape)
+    # print(de_onestep_uv.min())
+    # print(de_onestep_uv.max())
 
     predictions = []
     current_state = state[0, ...].unsqueeze(0)
-    print(current_state.shape)
+    # print(current_state.shape)
     n_steps = prediction_step
     
     with torch.no_grad():
@@ -171,7 +261,7 @@ if __name__ == '__main__':
     rollout = torch.cat(predictions, dim=0)
     rollout = torch.cat([normalize_groundtruth[0:1, ...], rollout[:-1, ...]])
 
-    print(rollout.shape)
+    # print(rollout.shape)
 
     de_rollout = denorm(rollout)
     de_rollout_uv = (de_rollout[:, 0, :, :] ** 2 + de_rollout[:, 1, :, :] ** 2) ** 0.5
@@ -181,4 +271,46 @@ if __name__ == '__main__':
     print(de_rollout_uv.max())
 
     plot_comparisons(raw_data_uv, de_reconstruct_uv, de_onestep_uv, de_rollout_uv,
-                    time_indices=[1, 5, 11, 15, 21])
+                    time_indices=[1, 5, 11, 15, 21], save_dir=fig_save_path)
+    
+
+    # Compute Metric
+
+    overall_metrics = compute_metrics(raw_data_uv, de_reconstruct_uv, de_onestep_uv, de_rollout_uv)
+    
+    print("Overall metric:")
+    for method, metrics in overall_metrics.items():
+        print(f"{method}:")
+        for metric_name, value in metrics.items():
+            print(f"  {metric_name}: {value:.6f}")
+        print()
+    
+    temporal_metrics = compute_temporal_metrics(raw_data_uv, de_reconstruct_uv, de_onestep_uv, de_rollout_uv)
+    
+    print("Per Time Frame Metric (first 5 frames):")
+    for method, metrics in temporal_metrics.items():
+        print(f"{method}:")
+        for metric_name, values in metrics.items():
+            print(f"  {metric_name}: {values[:5]}")
+        print()
+    
+    import matplotlib.pyplot as plt
+    
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    metrics_names = ['MSE', 'MAE', 'Relative_L2', 'SSIM']
+    
+    for i, metric_name in enumerate(metrics_names):
+        ax = axes[i//2, i%2]
+        
+        for method in ['reconstruction', 'onestep', 'rollout']:
+            values = temporal_metrics[method][metric_name]
+            ax.plot(values, label=method)
+        
+        ax.set_xlabel('Time Step')
+        ax.set_ylabel(metric_name)
+        ax.set_title(f'{metric_name} over Time')
+        ax.legend()
+        ax.grid(True)
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(fig_save_path, "cyl_perframe_metric.png"))

@@ -113,6 +113,6 @@ def plot_loss_curves(losses, save_path="figures/loss/cylinder_losses.png"):
     plt.savefig(save_path)
 
 
-loss_dir = "kol_model_weights/losses"
+loss_dir = "best_kol_model_weights/losses"
 losses = load_all_losses(loss_dir)
-plot_loss_curves(losses, save_path='figures/loss/kol_losses.png')
+plot_loss_curves(losses, save_path='figures/loss/kol_losses_train.png')

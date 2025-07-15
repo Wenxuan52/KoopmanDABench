@@ -1,5 +1,3 @@
-import os
-import sys
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -10,7 +8,13 @@ import yaml
 from typing import Optional
 import matplotlib.pyplot as plt
 
-from Dataset import KolDynamicsDataset
+import os
+import sys
+current_directory = os.getcwd()
+src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", ".."))
+sys.path.append(src_directory)
+
+from src.utils.Dataset import KolDynamicsDataset
 
 
 def plot_comparisons(raw_data, reconstruct, onestep, rollout, time_indices=[1, 4, 7, 10], save_dir="figures"):
@@ -91,27 +95,27 @@ if __name__ == '__main__':
 
     val_idx = 3
 
-    kol_train_dataset = KolDynamicsDataset(data_path="../../../data/kolmogorov/kolmogorov_train_data.npy",
+    kol_train_dataset = KolDynamicsDataset(data_path="../../../data/kolmogorov/RE450_n3/kolmogorov_train_data.npy",
                 seq_length = foward_step,
                 mean=None,
                 std=None)
     
-    kol_val_dataset = KolDynamicsDataset(data_path="../../../data/kolmogorov/kolmogorov_val_data.npy",
+    kol_val_dataset = KolDynamicsDataset(data_path="../../../data/kolmogorov/RE450_n3/kolmogorov_val_data.npy",
                 seq_length = foward_step,
                 mean=kol_train_dataset.mean,
                 std=kol_train_dataset.std)
     
     denorm = kol_val_dataset.denormalizer()
 
-    groundtruth = kol_val_dataset.data[val_idx, start_T:start_T + prediction_step, ...]
+    groundtruth = kol_train_dataset.data[val_idx, start_T:start_T + prediction_step, ...]
     groundtruth = torch.tensor(groundtruth, dtype=torch.float32)
     print(groundtruth.shape)
     print(groundtruth.min())
     print(groundtruth.max())
 
     forward_model = KOL_C_FORWARD()
-    forward_model.load_state_dict(torch.load('kol_model_trans_weights/forward_model.pt', weights_only=True, map_location='cpu'))
-    forward_model.C_forward = torch.load('kol_model_trans_weights/C_forward.pt', weights_only=True, map_location='cpu')
+    forward_model.load_state_dict(torch.load('kol_model_weights/forward_model.pt', weights_only=True, map_location='cpu'))
+    forward_model.C_forward = torch.load('kol_model_weights/C_forward.pt', weights_only=True, map_location='cpu')
     forward_model.eval()
 
     print(forward_model)

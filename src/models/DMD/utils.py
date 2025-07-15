@@ -3,38 +3,15 @@ from torch import Tensor, FloatTensor, pow, sin, cos, arange
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformer import *
 
-def count_parameters(model:nn.Module)->int:
-    """
-    Count the number of parameters in a model.
-    
-    Args:
-    - model: nn.Module, the model to count parameters.
-    
-    Returns:
-    - int, the number of parameters in the model.
-    """
-    num_params =  sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"[INFO] Number of parameters: {num_params}")
-    return num_params
+import os
+import sys
+current_directory = os.getcwd()
+src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", ".."))
+sys.path.append(src_directory)
 
+from src.utils.transformer import *
 
-def dict2namespace(config):
-    namespace = argparse.Namespace()
-    for key, value in config.items():
-        if isinstance(value, dict):
-            new_value = dict2namespace(value)
-        else:
-            new_value = value
-        setattr(namespace, key, new_value)
-    return namespace
-
-class weighted_MSELoss(Module):
-    def __init__(self):
-        super().__init__()
-    def forward(self,inputs,targets,weights):
-        return ((inputs - targets)**2 ) * weights
     
 class View(Module):
     def __init__(self, shape):
@@ -76,10 +53,6 @@ class PositionalEncodingLayer(Module):
         return position_encoding
 
 
-def is_symmetric(matrix, tol=1e-8):
-    return torch.allclose(matrix, matrix.T, atol=tol)  
-
-
 class DoubleConv(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(DoubleConv, self).__init__()
@@ -94,52 +67,3 @@ class DoubleConv(nn.Module):
 
     def forward(self, x):
         return self.conv(x)
-
-
-class Transformer_Based_Inv_Obs_Model(nn.Module):
-    def __init__(self, in_channel:int=50, out_channel:int=5, LayerNorm_type = 'WithBias',
-                 ffn_expansion_factor = 2.66, bias = False, num_blocks = [2, 2, 2, 2]):
-        super(Transformer_Based_Inv_Obs_Model, self).__init__()
-
-        dim_list = [in_channel*2, in_channel*4, in_channel*2, out_channel]
-        num_heads = [5, 10, 5, 1]
-        num_blocks = num_blocks
-
-        self.patch_embed = OverlapPatchEmbed(in_channel, embed_dim=dim_list[0])
-        self.Upsample_1 = Upsample_Flex(dim_list[0], dim_list[1])
-        self.Upsample_2 = Upsample_Flex(dim_list[1], dim_list[2])
-        self.Upsample_3 = Upsample_Flex(dim_list[2], dim_list[3])
-
-        self.block1 = nn.Sequential(*[TransformerBlock(dim=dim_list[0], 
-                                                       num_heads=num_heads[0], 
-                                                       ffn_expansion_factor=ffn_expansion_factor, 
-                                                       bias=bias, LayerNorm_type=LayerNorm_type) 
-                                                       for i in range(num_blocks[0])])
-        self.block2 = nn.Sequential(*[TransformerBlock(dim=dim_list[1], 
-                                                       num_heads=num_heads[1], 
-                                                       ffn_expansion_factor=ffn_expansion_factor, 
-                                                       bias=bias, LayerNorm_type=LayerNorm_type) 
-                                                       for i in range(num_blocks[1])])
-        self.block3 = nn.Sequential(*[TransformerBlock(dim=dim_list[2],
-                                                         num_heads=num_heads[2], 
-                                                         ffn_expansion_factor=ffn_expansion_factor, 
-                                                         bias=bias, LayerNorm_type=LayerNorm_type) 
-                                                         for i in range(num_blocks[2])])
-        self.block4 = nn.Sequential(*[TransformerBlock(dim=dim_list[3],
-                                                        num_heads=num_heads[3], 
-                                                        ffn_expansion_factor=ffn_expansion_factor, 
-                                                        bias=bias, LayerNorm_type=LayerNorm_type) 
-                                                        for i in range(num_blocks[3])])
-    def forward(self, x):
-        x = self.patch_embed(x)
-        x = self.block1(x)
-        x = self.Upsample_1(x)
-
-        x = self.block2(x)
-        x = self.Upsample_2(x)
-
-        x = self.block3(x)
-        x = self.Upsample_3(x)
-
-        x = self.block4(x)
-        return x
