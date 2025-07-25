@@ -12,7 +12,7 @@ current_directory = os.getcwd()
 src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", ".."))
 sys.path.append(src_directory)
 
-from src.utils.utils import weighted_MSELoss
+from src.utils.utils import is_symmetric, weighted_MSELoss
 
 # Features 
 class K_O_BASE(nn.Module):
@@ -53,13 +53,19 @@ class K_S_preimage_BASE(nn.Module):
 
 class base_forward_model(nn.Module):
     def __init__(self, K_S:nn.Module, K_S_preimage:nn.Module, 
-                       seq_length: int, *args, **kwargs) -> None:
+                       seq_length: int, hidden_dim: int = None, *args, **kwargs) -> None:
         super(base_forward_model, self).__init__(*args, **kwargs)
         self.K_S = K_S
         self.K_S_preimage = K_S_preimage
-        self.hidden_dim = K_S.hidden_dims[-1]
+        self.hidden_dim = hidden_dim if hidden_dim is not None else K_S.hidden_dims[-1]
         self.seq_length = seq_length
-        self.C_forward = nn.Linear(self.hidden_dim, self.hidden_dim, bias=False)
+        
+        # Replace linear layer with MLP for weak nonlinearity
+        self.C_forward = nn.Sequential(
+            nn.Linear(self.hidden_dim, 64, bias=True),
+            nn.ReLU(),
+            nn.Linear(64, self.hidden_dim, bias=True)
+        )
     
     def forward(self, state: torch.Tensor):
         z = self.K_S(state)
@@ -81,6 +87,7 @@ class base_forward_model(nn.Module):
 
         loss_fwd = 0
         loss_identity = 0
+        loss_latent_linear = 0
 
         for i in range(self.seq_length):
             z_seq[:, i, :] = self.K_S(state_seq[:, i, :])
@@ -98,8 +105,10 @@ class base_forward_model(nn.Module):
             else:
                 loss_fwd += F.mse_loss(recon_s_next, state_next_seq[:, i, :])
                 loss_identity += F.mse_loss(recon_s, state_seq[:, i, :])
+            
+            loss_latent_linear += F.mse_loss(z_next_seq[:, i, :], pred_z_next[:, i, :])
                 
-        return loss_fwd, loss_identity, self.C_forward.weight
+        return loss_fwd, loss_identity, loss_latent_linear, self.C_forward
     
     def save_C_forward(self, path, C_forward):
         C_forward_filename = path + '/' + 'C_forward.pt'

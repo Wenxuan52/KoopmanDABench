@@ -187,7 +187,7 @@ if __name__ == '__main__':
     # print(val_CDD[inx][0].min())
     # print(val_CDD[inx][1].max())
 
-    KDD = KolDynamicsDataset(data_path="data/kolmogorov/RE450_n3/kolmogorov_train_data.npy",
+    KDD = KolDynamicsDataset(data_path="data/kolmogorov/RE40_n4_T10/kolmogorov_train_data.npy",
                 seq_length = 12,
                 mean=None,
                 std=None)
@@ -207,7 +207,7 @@ if __name__ == '__main__':
 
     print(KDD.total_sample)
 
-    val_KDD = KolDynamicsDataset(data_path="data/kolmogorov/RE450_n3/kolmogorov_val_data.npy",
+    val_KDD = KolDynamicsDataset(data_path="data/kolmogorov/RE40_n4_T10/kolmogorov_val_data.npy",
                 seq_length = 12,
                 mean=KDD.mean,
                 std=KDD.std)

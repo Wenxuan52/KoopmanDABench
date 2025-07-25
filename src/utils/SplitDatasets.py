@@ -168,7 +168,7 @@ def denormalize_data(data: np.ndarray, mean: np.ndarray, std: np.ndarray) -> np.
     return data * std + mean
 
 if __name__ == "__main__":
-    koldata = DatasetKol("data/kolmogorov/RE450_n4/kf_2d_re450_n4_data.npy", normalize=False, train_ratio=0.8, random_seed=42)
+    koldata = DatasetKol("data/kolmogorov/RE1000_T20/kf_2d_re1000_data.npy", normalize=False, train_ratio=0.8, random_seed=42)
     print(koldata.data.shape)
     
     print(koldata.mean)
@@ -190,8 +190,14 @@ if __name__ == "__main__":
     # print(de_val_data.min())
     # print(de_val_data.max())
 
-    np.save("data/kolmogorov/RE450_n4/kolmogorov_train_data.npy", koldata.train_data)
-    np.save("data/kolmogorov/RE450_n4/kolmogorov_val_data.npy", koldata.val_data)
+    # temp_train = koldata.train_data[:, 500:, ...]
+    # temp_val = koldata.val_data[:, 500:, ...]
+
+    # print(temp_train.shape)
+    # print(temp_val.shape)
+
+    np.save("data/kolmogorov/RE1000_T20/kolmogorov_train_data.npy", koldata.train_data)
+    np.save("data/kolmogorov/RE1000_T20/kolmogorov_val_data.npy", koldata.val_data)
 
     # cylinderdata = DatasetCylinder("data/cylinder", normalize=True, train_ratio=0.8, random_seed=42)
     # print(cylinderdata.mean)

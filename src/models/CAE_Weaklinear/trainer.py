@@ -50,7 +50,7 @@ def save_monitoring_stats(stats_dict, save_folder):
         pickle.dump(stats_dict, f)
     print(f"[INFO] Training statistics saved to: {stats_path}")
 
-def evaluate_forward_model(forward_model, val_dataset, device='cpu', weight_matrix=None, batch_size=64, lamb=0.3):
+def evaluate_forward_model(forward_model, val_dataset, device='cpu', weight_matrix=None, batch_size=64, lamb=0.3, lamb_linear=0.1):
     """Evaluate forward model on validation set"""
     forward_model.eval()
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
@@ -58,6 +58,7 @@ def evaluate_forward_model(forward_model, val_dataset, device='cpu', weight_matr
     total_loss = 0.0
     total_fwd_loss = 0.0
     total_id_loss = 0.0
+    total_linear_loss = 0.0
     num_batches = 0
     
     with torch.no_grad():
@@ -68,21 +69,23 @@ def evaluate_forward_model(forward_model, val_dataset, device='cpu', weight_matr
                 B = batch_data[0].shape[0]
                 C = batch_data[0].shape[2]
                 weight_matrix_batch = torch.tensor(weight_matrix, dtype=torch.float32).repeat(B, C, 1, 1).to(device)
-                loss_fwd, loss_id, _ = forward_model.compute_loss(pre_sequences, post_sequences, weight_matrix_batch)
+                loss_fwd, loss_id, loss_linear, _ = forward_model.compute_loss(pre_sequences, post_sequences, weight_matrix_batch)
             else:
-                loss_fwd, loss_id, _ = forward_model.compute_loss(pre_sequences, post_sequences)
+                loss_fwd, loss_id, loss_linear, _ = forward_model.compute_loss(pre_sequences, post_sequences)
             
             total_fwd_loss += loss_fwd.item()
             total_id_loss += loss_id.item()
-            total_loss += (loss_fwd + lamb * loss_id).item()
+            total_linear_loss += loss_linear.item()
+            total_loss += (loss_fwd + lamb * loss_id + lamb_linear * loss_linear).item()
             num_batches += 1
     
     avg_loss = total_loss / num_batches
     avg_fwd_loss = total_fwd_loss / num_batches
     avg_id_loss = total_id_loss / num_batches
+    avg_linear_loss = total_linear_loss / num_batches
     
     forward_model.train()
-    return avg_loss, avg_fwd_loss, avg_id_loss
+    return avg_loss, avg_fwd_loss, avg_id_loss, avg_linear_loss
 
 
 def train_jointly_forward_model(forward_model, 
@@ -91,6 +94,7 @@ def train_jointly_forward_model(forward_model,
                        model_save_folder: str,
                        learning_rate: float = 1e-3,
                        lamb: float = 0.3,
+                       lamb_linear: float = 0.1,
                        weight_decay: float = 0,
                        batch_size: int = 64,
                        num_epochs: int = 20,
@@ -107,8 +111,8 @@ def train_jointly_forward_model(forward_model,
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     num_samples = train_dataset.total_sample
     
-    train_loss = {'forward': [], 'id': [], 'total': []}
-    val_loss = {'forward': [], 'id': [], 'total': []}
+    train_loss = {'forward': [], 'id': [], 'linear': [], 'total': []}
+    val_loss = {'forward': [], 'id': [], 'linear': [], 'total': []}
     
     # Initialize monitoring variables
     epoch_times = []
@@ -138,6 +142,7 @@ def train_jointly_forward_model(forward_model,
 
         epoch_train_fwd = []
         epoch_train_id = []
+        epoch_train_linear = []
         epoch_train_total = []
         
         for batch_idx, batch_data in tqdm(enumerate(train_dataloader), 
@@ -150,11 +155,11 @@ def train_jointly_forward_model(forward_model,
             if weight_matrix is not None:
                 C = batch_data[0].shape[2]
                 weight_matrix_batch = torch.tensor(weight_matrix, dtype=torch.float32).repeat(B, C, 1, 1).to(device)
-                loss_fwd, loss_id, _ = forward_model.compute_loss(pre_sequences, post_sequences, weight_matrix_batch)
+                loss_fwd, loss_id, loss_linear, _ = forward_model.compute_loss(pre_sequences, post_sequences, weight_matrix_batch)
             else:
-                loss_fwd, loss_id, _ = forward_model.compute_loss(pre_sequences, post_sequences)
+                loss_fwd, loss_id, loss_linear, _ = forward_model.compute_loss(pre_sequences, post_sequences)
             
-            loss = loss_fwd + lamb * loss_id
+            loss = loss_fwd + lamb * loss_id + lamb_linear * loss_linear
             
             optimizer.zero_grad()
             loss.backward()
@@ -163,6 +168,7 @@ def train_jointly_forward_model(forward_model,
             
             epoch_train_fwd.append(loss_fwd.item())
             epoch_train_id.append(loss_id.item())
+            epoch_train_linear.append(loss_linear.item())
             epoch_train_total.append(loss.item())
 
             # Monitor peak memory usage during training
@@ -173,23 +179,25 @@ def train_jointly_forward_model(forward_model,
         # Calculate average training losses
         train_loss['forward'].append(np.mean(epoch_train_fwd))
         train_loss['id'].append(np.mean(epoch_train_id))
+        train_loss['linear'].append(np.mean(epoch_train_linear))
         train_loss['total'].append(np.mean(epoch_train_total))
         
         # Validation phase
-        val_loss_epoch, val_fwd_loss_epoch, val_id_loss_epoch = evaluate_forward_model(
-            forward_model, val_dataset, device, weight_matrix, batch_size=batch_size, lamb=lamb)
+        val_loss_epoch, val_fwd_loss_epoch, val_id_loss_epoch, val_linear_loss_epoch = evaluate_forward_model(
+            forward_model, val_dataset, device, weight_matrix, batch_size=batch_size, lamb=lamb, lamb_linear=lamb_linear)
         
         val_loss['total'].append(val_loss_epoch)
         val_loss['forward'].append(val_fwd_loss_epoch)
         val_loss['id'].append(val_id_loss_epoch)
-        
+        val_loss['linear'].append(val_linear_loss_epoch)
+
         # Record epoch time
         epoch_time = time.time() - epoch_start_time
         epoch_times.append(epoch_time)
-
+        
         print(f'Epoch [{epoch+1}/{num_epochs}] - Time: {epoch_time:.2f}s')
-        print(f'Train - Total: {train_loss["total"][-1]:.4f}, Forward: {train_loss["forward"][-1]:.4f}, ID: {train_loss["id"][-1]:.4f}')
-        print(f'Val   - Total: {val_loss_epoch:.4f}, Forward: {val_fwd_loss_epoch:.4f}, ID: {val_id_loss_epoch:.4f}')
+        print(f'Train - Total: {train_loss["total"][-1]:.4f}, Forward: {train_loss["forward"][-1]:.4f}, ID: {train_loss["id"][-1]:.4f}, Linear: {train_loss["linear"][-1]:.4f}')
+        print(f'Val   - Total: {val_loss_epoch:.4f}, Forward: {val_fwd_loss_epoch:.4f}, ID: {val_id_loss_epoch:.4f}, Linear: {val_linear_loss_epoch:.4f}')
         
         # Save model if validation loss improved
         if val_loss_epoch < best_val_loss:
@@ -206,7 +214,7 @@ def train_jointly_forward_model(forward_model,
         
         scheduler.step()
         print('')
-    
+
     # Save monitoring statistics
     avg_epoch_time = np.mean(epoch_times)
     save_monitoring_stats({
@@ -219,7 +227,6 @@ def train_jointly_forward_model(forward_model,
     print(f"[INFO] Training completed. Best validation loss: {best_val_loss:.4f}")
     print(f"[INFO] Average epoch time: {avg_epoch_time:.2f}s")
     print(f"[INFO] Peak memory usage - CPU: {max_cpu_memory:.2f}GB, GPU: {max_gpu_memory:.2f}GB")
-    
     return train_loss, val_loss
 
 
@@ -243,8 +250,8 @@ def train_cae_pretraining(forward_model,
     
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     
-    train_loss = {'forward': [], 'id': [], 'total': []}
-    val_loss = {'forward': [], 'id': [], 'total': []}
+    train_loss = {'forward': [], 'id': [], 'linear': [], 'total': []}
+    val_loss = {'forward': [], 'id': [], 'linear': [], 'total': []}
     
     # Freeze linear layer, unfreeze encoder and decoder
     for param in forward_model.C_forward.parameters():
@@ -270,6 +277,7 @@ def train_cae_pretraining(forward_model,
     for epoch in range(num_epochs):
         epoch_train_fwd = []
         epoch_train_id = []
+        epoch_train_linear = []
         epoch_train_total = []
         
         for batch_idx, batch_data in tqdm(enumerate(train_dataloader), 
@@ -283,9 +291,9 @@ def train_cae_pretraining(forward_model,
             if weight_matrix is not None:
                 C = batch_data[0].shape[2]
                 weight_matrix_batch = torch.tensor(weight_matrix, dtype=torch.float32).repeat(B, C, 1, 1).to(device)
-                _, loss_id, _ = forward_model.compute_loss(pre_sequences, post_sequences, weight_matrix_batch)
+                _, loss_id, loss_linear, _ = forward_model.compute_loss(pre_sequences, post_sequences, weight_matrix_batch)
             else:
-                _, loss_id, _ = forward_model.compute_loss(pre_sequences, post_sequences)
+                _, loss_id, loss_linear, _ = forward_model.compute_loss(pre_sequences, post_sequences)
             
             loss = loss_id  # Only identity loss for CAE pre-training
             
@@ -296,20 +304,23 @@ def train_cae_pretraining(forward_model,
             
             epoch_train_fwd.append(0.0)  # No forward loss in CAE pre-training
             epoch_train_id.append(loss_id.item())
+            epoch_train_linear.append(loss_linear.item())
             epoch_train_total.append(loss.item())
         
         train_loss['forward'].append(np.mean(epoch_train_fwd))
         train_loss['id'].append(np.mean(epoch_train_id))
+        train_loss['linear'].append(np.mean(epoch_train_linear))
         train_loss['total'].append(np.mean(epoch_train_total))
         
         # Validation phase
-        _, val_fwd_loss_epoch, val_id_loss_epoch = evaluate_forward_model(
-            forward_model, val_dataset, device, weight_matrix, batch_size=batch_size, lamb=0.0)
+        _, val_fwd_loss_epoch, val_id_loss_epoch, val_linear_loss_epoch = evaluate_forward_model(
+            forward_model, val_dataset, device, weight_matrix, batch_size=batch_size, lamb=0.0, lamb_linear=0.0)
         val_loss_epoch = val_id_loss_epoch  # Only identity loss for validation
         
         val_loss['total'].append(val_loss_epoch)
         val_loss['forward'].append(0.0)
         val_loss['id'].append(val_id_loss_epoch)
+        val_loss['linear'].append(val_linear_loss_epoch)
         
         print(f'Epoch [{epoch+1}/{num_epochs}]')
         print(f'Train - Total: {train_loss["total"][-1]:.4f}, ID: {train_loss["id"][-1]:.4f}')
@@ -340,6 +351,7 @@ def train_linear_predictor(forward_model,
                           model_save_folder: str,
                           learning_rate: float = 1e-3,
                           lamb: float = 0.3,
+                          lamb_linear: float = 0.1,
                           weight_decay: float = 0,
                           batch_size: int = 64,
                           num_epochs: int = 20,
@@ -353,8 +365,8 @@ def train_linear_predictor(forward_model,
     
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     
-    train_loss = {'forward': [], 'id': [], 'total': []}
-    val_loss = {'forward': [], 'id': [], 'total': []}
+    train_loss = {'forward': [], 'id': [], 'linear': [], 'total': []}
+    val_loss = {'forward': [], 'id': [], 'linear': [], 'total': []}
     
     # Unfreeze linear layer, freeze encoder and decoder
     for param in forward_model.C_forward.parameters():
@@ -380,6 +392,7 @@ def train_linear_predictor(forward_model,
     for epoch in range(num_epochs):
         epoch_train_fwd = []
         epoch_train_id = []
+        epoch_train_linear = []
         epoch_train_total = []
         
         for batch_idx, batch_data in tqdm(enumerate(train_dataloader), 
@@ -392,11 +405,11 @@ def train_linear_predictor(forward_model,
             if weight_matrix is not None:
                 C = batch_data[0].shape[2]
                 weight_matrix_batch = torch.tensor(weight_matrix, dtype=torch.float32).repeat(B, C, 1, 1).to(device)
-                loss_fwd, loss_id, _ = forward_model.compute_loss(pre_sequences, post_sequences, weight_matrix_batch)
+                loss_fwd, loss_id, loss_linear, _ = forward_model.compute_loss(pre_sequences, post_sequences, weight_matrix_batch)
             else:
-                loss_fwd, loss_id, _ = forward_model.compute_loss(pre_sequences, post_sequences)
+                loss_fwd, loss_id, loss_linear, _ = forward_model.compute_loss(pre_sequences, post_sequences)
             
-            loss = loss_fwd + lamb * loss_id
+            loss = loss_fwd + lamb * loss_id + lamb_linear * loss_linear
             
             optimizer.zero_grad()
             loss.backward()
@@ -405,23 +418,26 @@ def train_linear_predictor(forward_model,
             
             epoch_train_fwd.append(loss_fwd.item())
             epoch_train_id.append(loss_id.item())
+            epoch_train_linear.append(loss_linear.item())
             epoch_train_total.append(loss.item())
         
         train_loss['forward'].append(np.mean(epoch_train_fwd))
         train_loss['id'].append(np.mean(epoch_train_id))
+        train_loss['linear'].append(np.mean(epoch_train_linear))
         train_loss['total'].append(np.mean(epoch_train_total))
         
         # Validation phase
-        val_loss_epoch, val_fwd_loss_epoch, val_id_loss_epoch = evaluate_forward_model(
-            forward_model, val_dataset, device, weight_matrix, batch_size=batch_size, lamb=lamb)
+        val_loss_epoch, val_fwd_loss_epoch, val_id_loss_epoch, val_linear_loss_epoch = evaluate_forward_model(
+            forward_model, val_dataset, device, weight_matrix, batch_size=batch_size, lamb=lamb, lamb_linear=lamb_linear)
         
         val_loss['total'].append(val_loss_epoch)
         val_loss['forward'].append(val_fwd_loss_epoch)
         val_loss['id'].append(val_id_loss_epoch)
+        val_loss['linear'].append(val_linear_loss_epoch)
         
         print(f'Epoch [{epoch+1}/{num_epochs}]')
-        print(f'Train - Total: {train_loss["total"][-1]:.4f}, Forward: {train_loss["forward"][-1]:.4f}, ID: {train_loss["id"][-1]:.4f}')
-        print(f'Val   - Total: {val_loss_epoch:.4f}, Forward: {val_fwd_loss_epoch:.4f}, ID: {val_id_loss_epoch:.4f}')
+        print(f'Train - Total: {train_loss["total"][-1]:.4f}, Forward: {train_loss["forward"][-1]:.4f}, ID: {train_loss["id"][-1]:.4f}, Linear: {train_loss["linear"][-1]:.4f}')
+        print(f'Val   - Total: {val_loss_epoch:.4f}, Forward: {val_fwd_loss_epoch:.4f}, ID: {val_id_loss_epoch:.4f}, Linear: {val_linear_loss_epoch:.4f}')
         
         if val_loss_epoch < best_val_loss:
             best_val_loss = val_loss_epoch
