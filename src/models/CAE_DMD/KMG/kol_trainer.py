@@ -11,8 +11,6 @@ from tqdm import tqdm
 import yaml
 from typing import Optional
 
-from trainer import set_seed, train_jointly_forward_model, save_training_log, train_ms_forward_model
-
 import os
 import sys
 current_directory = os.getcwd()
@@ -24,8 +22,8 @@ from src.models.CAE_DMD.trainer import set_seed, train_jointly_forward_model, sa
 
 
 def main():
-    from kol_model import KOL_C_FORWARD
-    # from kol_model_new import KOL_C_FORWARD
+    # from kol_model import KOL_C_FORWARD
+    from kol_model_FTF import KOL_C_FORWARD
 
     set_seed(42)
     torch.set_default_dtype(torch.float32)
@@ -37,7 +35,7 @@ def main():
         print(f"[INFO] {torch.cuda.get_device_properties(0)}")
     
     # Load configuration
-    config_path = "../../../../configs/CAE_DMD_CYL.yaml"
+    config_path = "../../../../configs/CAE_DMD_KOL.yaml"
     with open(config_path, 'r') as file:
         config = yaml.safe_load(file)
     
@@ -52,12 +50,12 @@ def main():
     print("="*50)
     
     # Load dynamics dataset
-    kol_train_dataset = KolDynamicsDataset(data_path="../../../../data/kolmogorov/RE40_T20/kolmogorov_train_data.npy",
+    kol_train_dataset = KolDynamicsDataset(data_path="../../../../data/kolmogorov/RE1000_T20/kolmogorov_train_data.npy",
                 seq_length = config['seq_length'],
                 mean=None,
                 std=None)
     
-    kol_val_dataset = KolDynamicsDataset(data_path="../../../../data/kolmogorov/RE40_T20/kolmogorov_val_data.npy",
+    kol_val_dataset = KolDynamicsDataset(data_path="../../../../data/kolmogorov/RE1000_T20/kolmogorov_val_data.npy",
                 seq_length = config['seq_length'],
                 mean=kol_train_dataset.mean,
                 std=kol_train_dataset.std)

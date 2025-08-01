@@ -121,67 +121,58 @@ class DatasetCylinder(BaseDataset):
         
         self.data = data
 
+class DatasetDam(BaseDataset):
+    """Dataset for Dam flow data"""
 
-class DatasetCHAP(BaseDataset):
-    """Dataset for CHAP multi-physics data"""
-    
-    def __init__(self, data_path: str, chemical: str = "Cl", normalize: bool = True, 
-                 train: bool = True, train_ratio: float = 0.8, random_seed: int = 42):
-        """
-        Args:
-            chemical: Which chemical to use ("Cl", "NH4", "NO3", "SO4")
-        """
-        self.chemical = chemical
-        super().__init__(data_path, normalize, train, train_ratio, random_seed)
-    
     def _load_data(self):
-        """Load CHAP dataset for specified chemical"""
-        chem_path = os.path.join(self.data_path, self.chemical)
+        """Load Dam dataset"""
+        file_path = os.path.join(self.data_path, "dam_data.npy")
         
-        if not os.path.exists(chem_path):
-            raise FileNotFoundError(f"Chemical folder not found at {chem_path}")
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Dam dataset not found at {file_path}")
         
-        # Load observation data
-        obs_path = os.path.join(chem_path, f"CHAP_{self.chemical}_observation.npy")
-        lat_path = os.path.join(chem_path, f"CHAP_{self.chemical}_lat.npy")
-        lon_path = os.path.join(chem_path, f"CHAP_{self.chemical}_lon.npy")
+        data = np.load(file_path)
+        print(f"Loaded Dam data with shape: {data.shape}")
         
-        if not all(os.path.exists(p) for p in [obs_path, lat_path, lon_path]):
-            raise FileNotFoundError(f"Missing data files for {self.chemical}")
-        
-        # Load data
-        observations = np.load(obs_path)  # [8, 365, lat_dim, lon_dim]
-        print(f"Loaded CHAP {self.chemical} data with shape: {observations.shape}")
-        
-        # Reshape: [years, days, lat*lon] -> [years, days, features]
-        n_years, n_days, lat_dim, lon_dim = observations.shape
-        observations_flat = observations.reshape(n_years, n_days, -1)
-        
-        # Handle NaN values
-        observations_flat = np.nan_to_num(observations_flat, nan=0.0)
-        
-        self.data = observations_flat
-        print(f"Reshaped data to: {self.data.shape}")
+        self.data = data
 
+    def _split_data(self):
+        """Split data into train/val sets using evenly spaced sampling for val"""
+        n_samples = len(self.data)
+        val_size = int(n_samples * (1 - self.train_ratio))
+        
+        # Compute validation indices: start from 0, step evenly to cover val_size samples
+        step = n_samples // val_size + 1
+        val_idx = list(range(0, n_samples, step))[:val_size]
+
+        # Compute training indices: all others not in val_idx
+        val_idx_set = set(val_idx)
+        train_idx = [i for i in range(n_samples) if i not in val_idx_set]
+
+        print(f"Train indices: {train_idx}")
+        print(f"Val indices: {val_idx}")
+
+        self.train_data = self.data[train_idx]
+        self.val_data = self.data[val_idx]
 
 def denormalize_data(data: np.ndarray, mean: np.ndarray, std: np.ndarray) -> np.ndarray:
     return data * std + mean
 
 if __name__ == "__main__":
-    koldata = DatasetKol("data/kolmogorov/RE1000_T20/kf_2d_re1000_data.npy", normalize=False, train_ratio=0.8, random_seed=42)
-    print(koldata.data.shape)
+    # koldata = DatasetKol("data/kolmogorov/RE1000/kf_2d_re1000_data.npy", normalize=False, train_ratio=0.8, random_seed=42)
+    # print(koldata.data.shape)
     
-    print(koldata.mean)
-    print(koldata.std)
+    # print(koldata.mean)
+    # print(koldata.std)
     
-    print(koldata.train_data.shape)
-    print(koldata.val_data.shape)
+    # print(koldata.train_data.shape)
+    # print(koldata.val_data.shape)
 
-    print(koldata.train_data.min())
-    print(koldata.train_data.max())
+    # print(koldata.train_data.min())
+    # print(koldata.train_data.max())
 
-    print(koldata.val_data.min())
-    print(koldata.val_data.max())
+    # print(koldata.val_data.min())
+    # print(koldata.val_data.max())
 
     # de_train_data = denormalize_data(koldata.train_data, koldata.mean, koldata.std)
     # de_val_data = denormalize_data(koldata.val_data, koldata.mean, koldata.std)
@@ -196,8 +187,8 @@ if __name__ == "__main__":
     # print(temp_train.shape)
     # print(temp_val.shape)
 
-    np.save("data/kolmogorov/RE1000_T20/kolmogorov_train_data.npy", koldata.train_data)
-    np.save("data/kolmogorov/RE1000_T20/kolmogorov_val_data.npy", koldata.val_data)
+    # np.save("data/kolmogorov/RE1000/kolmogorov_train_data.npy", koldata.train_data)
+    # np.save("data/kolmogorov/RE1000/kolmogorov_val_data.npy", koldata.val_data)
 
     # cylinderdata = DatasetCylinder("data/cylinder", normalize=True, train_ratio=0.8, random_seed=42)
     # print(cylinderdata.mean)
@@ -218,3 +209,26 @@ if __name__ == "__main__":
     # print(de_train_data.max())
     # print(de_val_data.min())
     # print(de_val_data.max())
+
+    damdata = DatasetDam("data/dam", normalize=False, train_ratio=0.8, random_seed=42)
+    print(damdata.mean)
+    print(damdata.std)
+
+    print(damdata.train_data.shape)
+    print(damdata.val_data.shape)
+
+    print(damdata.train_data.min())
+    print(damdata.train_data.max())
+
+    print(damdata.val_data.min())
+    print(damdata.val_data.max())
+
+    # de_train_data = denormalize_data(damdata.train_data, damdata.mean, damdata.std)
+    # de_val_data = denormalize_data(damdata.val_data, damdata.mean, damdata.std)
+    # print(de_train_data.min())
+    # print(de_train_data.max())
+    # print(de_val_data.min())
+    # print(de_val_data.max())
+
+    np.save("data/dam/dam_train_data.npy", damdata.train_data)
+    np.save("data/dam/dam_val_data.npy", damdata.val_data)

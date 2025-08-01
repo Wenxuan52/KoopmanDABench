@@ -138,15 +138,12 @@ class base_forward_model(nn.Module):
             z_seq[:, i, :] = self.K_S(state_seq[:, i, :])
             z_next_seq[:, i, :] = self.K_S(state_next_seq[:, i, :])
 
-        # 计算前向传播权重
         z_seq_pinv = self.batch_pinv(z_seq)
         forward_weights = torch.bmm(z_seq_pinv, z_next_seq).mean(dim=0).repeat(B, 1, 1)
         self.C_forward = forward_weights
 
-        # 单步预测
         pred_z_next = self.batch_latent_forward(z_seq)
         
-        # 计算单步预测损失和重构损失
         for i in range(self.seq_length):
             recon_s = self.K_S_preimage(z_seq[:, i, :])
             recon_s_next = self.K_S_preimage(pred_z_next[:, i, :])
@@ -158,31 +155,22 @@ class base_forward_model(nn.Module):
                 loss_fwd += F.mse_loss(recon_s_next, state_next_seq[:, i, :])
                 loss_identity += F.mse_loss(recon_s, state_seq[:, i, :])
 
-        # 多步预测损失
         if multi_step > 1 and self.seq_length > multi_step:
-            # 对于每个可能的起始位置进行多步预测
             for start_idx in range(self.seq_length - multi_step):
-                # 从start_idx开始进行multi_step步预测
                 current_z = z_seq[:, start_idx, :].clone()  # [B, hidden_dim]
                 
-                # 逐步预测multi_step步
                 for step in range(multi_step):
-                    # 预测下一步的潜在状态
                     current_z = self.batch_latent_forward(current_z.unsqueeze(1)).squeeze(1)  # [B, hidden_dim]
                     
-                    # 解码到状态空间
                     pred_state = self.K_S_preimage(current_z)  # [B, state_dim]
                     
-                    # 目标状态
                     target_state = state_seq[:, start_idx + step + 1, :]  # [B, state_dim]
                     
-                    # 计算损失
                     if weight_matrix is not None:
                         loss_multi_step += weighted_MSELoss()(pred_state, target_state, weight_matrix).sum()
                     else:
                         loss_multi_step += F.mse_loss(pred_state, target_state)
             
-            # 对多步预测损失进行归一化
             loss_multi_step = loss_multi_step / (self.seq_length - multi_step)
         
         return loss_fwd, loss_identity, loss_multi_step, self.C_forward.mean(dim=0)

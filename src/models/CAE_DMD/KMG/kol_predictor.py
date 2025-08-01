@@ -1,21 +1,35 @@
 import numpy as np
 import torch
-from torch.utils.data import Dataset, DataLoader
-from torch.optim import Adam
-from torch.nn.utils import clip_grad_norm_
-from tqdm import tqdm
-import yaml
-from typing import Optional
+from skimage.metrics import structural_similarity as ssim
+import torch.nn.functional as F
 import matplotlib.pyplot as plt
+
+import psutil
+import time
+import pickle
 
 import os
 import sys
 current_directory = os.getcwd()
-src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", ".."))
+src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", "..", ".."))
 sys.path.append(src_directory)
 
 from src.utils.Dataset import KolDynamicsDataset
 
+def get_memory_usage():
+    """Get current memory usage for CPU and GPU"""
+    cpu_memory = psutil.virtual_memory().used / 1024**3  # GB
+    gpu_memory = 0
+    if torch.cuda.is_available():
+        gpu_memory = torch.cuda.memory_allocated() / 1024**3  # GB
+    return cpu_memory, gpu_memory
+
+def save_inference_stats(stats_dict, save_path):
+    """Save inference monitoring statistics"""
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    with open(save_path, 'wb') as f:
+        pickle.dump(stats_dict, f)
+    print(f"[INFO] Inference statistics saved to: {save_path}")
 
 def plot_comparisons(raw_data, reconstruct, onestep, rollout, time_indices=[1, 4, 7, 10], save_dir="figures"):
     os.makedirs(save_dir, exist_ok=True)
@@ -172,22 +186,24 @@ def compute_temporal_metrics(groundtruth, reconstruction, onestep, rollout):
 
 if __name__ == '__main__':
     # from kol_model import KOL_C_FORWARD
-    from kol_model_new import KOL_C_FORWARD
+    from kol_model_FTF import KOL_C_FORWARD
 
-    start_T = 100
+    fig_save_path = '../../../../results/CAE_DMD/figures/'
+
+    start_T = 150
     
-    prediction_step = 10
+    prediction_step = 100
     
     foward_step = 10
 
-    val_idx = 9
+    val_idx = 3
 
-    kol_train_dataset = KolDynamicsDataset(data_path="../../../data/kolmogorov/RE40_T20/kolmogorov_train_data.npy",
+    kol_train_dataset = KolDynamicsDataset(data_path="../../../../data/kolmogorov/RE40_T20/kolmogorov_train_data.npy",
                 seq_length = foward_step,
                 mean=None,
                 std=None)
     
-    kol_val_dataset = KolDynamicsDataset(data_path="../../../data/kolmogorov/RE40_T20/kolmogorov_val_data.npy",
+    kol_val_dataset = KolDynamicsDataset(data_path="../../../../data/kolmogorov/RE40_T20/kolmogorov_val_data.npy",
                 seq_length = foward_step,
                 mean=kol_train_dataset.mean,
                 std=kol_train_dataset.std)
@@ -201,8 +217,8 @@ if __name__ == '__main__':
     print(groundtruth.max())
 
     forward_model = KOL_C_FORWARD()
-    forward_model.load_state_dict(torch.load('kol_model_weights_new/forward_model.pt', weights_only=True, map_location='cpu'))
-    forward_model.C_forward = torch.load('kol_model_weights_new/C_forward.pt', weights_only=True, map_location='cpu')
+    forward_model.load_state_dict(torch.load('../../../../results/CAE_DMD/KMG/kol_model_weights_FTF/forward_model.pt', weights_only=True, map_location='cpu'))
+    forward_model.C_forward = torch.load('../../../../results/CAE_DMD/KMG/kol_model_weights_FTF/C_forward.pt', weights_only=True, map_location='cpu')
     forward_model.eval()
 
     U, S, Vh = torch.linalg.svd(forward_model.C_forward)
@@ -217,45 +233,189 @@ if __name__ == '__main__':
     print(normalize_groundtruth.max())
 
     state = normalize_groundtruth
+
+    inference_stats = {}
+
+    # Warm Up
+    with torch.no_grad():
+        z = forward_model.K_S(state)
+        reconstruct = forward_model.K_S_preimage(z)
+
+    print("=== Reconstruction Inference ===")
+    start_time = time.time()
+    start_cpu, start_gpu = get_memory_usage()
     
     with torch.no_grad():
         z = forward_model.K_S(state)
         reconstruct = forward_model.K_S_preimage(z)
+    
+    recon_time = time.time() - start_time
+    end_cpu, end_gpu = get_memory_usage()
+    max_cpu_recon = max(start_cpu, end_cpu)
+    max_gpu_recon = max(start_gpu, end_gpu)
+    
+    print(f"Reconstruction time: {recon_time:.4f}s")
+    print(f"Memory usage - CPU: {max_cpu_recon:.2f}GB, GPU: {max_gpu_recon:.2f}GB")
+    
+    inference_stats['reconstruction'] = {
+        'total_time': recon_time,
+        'avg_time_per_frame': recon_time / prediction_step,
+        'max_cpu_memory': max_cpu_recon,
+        'max_gpu_memory': max_gpu_recon
+    }
 
     de_reconstruct = denorm(reconstruct)
     print(de_reconstruct.shape)
     print(de_reconstruct.min())
     print(de_reconstruct.max())
 
+    print("\n=== One-step Inference ===")
+    start_time = time.time()
+    start_cpu, start_gpu = get_memory_usage()
+
     with torch.no_grad():
         z_current = forward_model.K_S(state)
         z_next = torch.mm(z_current, forward_model.C_forward)
         onestep = forward_model.K_S_preimage(z_next)
+    
+    onestep_time = time.time() - start_time
+    end_cpu, end_gpu = get_memory_usage()
+    max_cpu_onestep = max(start_cpu, end_cpu)
+    max_gpu_onestep = max(start_gpu, end_gpu)
+    
+    print(f"One-step time: {onestep_time:.4f}s")
+    print(f"Memory usage - CPU: {max_cpu_onestep:.2f}GB, GPU: {max_gpu_onestep:.2f}GB")
+    
+    inference_stats['onestep'] = {
+        'total_time': onestep_time,
+        'avg_time_per_frame': onestep_time / prediction_step,
+        'max_cpu_memory': max_cpu_onestep,
+        'max_gpu_memory': max_gpu_onestep
+    }
 
     onestep = torch.cat([normalize_groundtruth[0:1, ...], onestep[:-1, ...]])
     de_onestep = denorm(onestep)
-    print(de_onestep.shape)
-    print(de_onestep.min())
-    print(de_onestep.max())
+    # print(de_onestep.shape)
+    # print(de_onestep.min())
+    # print(de_onestep.max())
 
+    print("\n=== Rollout Inference ===")
     predictions = []
     current_state = state[0, ...].unsqueeze(0)
-    n_steps = foward_step
+    n_steps = prediction_step
+
+    start_time = time.time()
+    start_cpu, start_gpu = get_memory_usage()
+    max_cpu_rollout = start_cpu
+    max_gpu_rollout = start_gpu
+
+    step_times = []
     
+    # with torch.no_grad():
+    #     for step in range(n_steps):
+    #         step_start = time.time()
+
+    #         z_current = forward_model.K_S(current_state)
+    #         z_next = forward_model.latent_forward(z_current)
+    #         next_state = forward_model.K_S_preimage(z_next)
+            
+    #         predictions.append(next_state)
+    #         current_state = next_state
+
+    #         step_time = time.time() - step_start
+    #         step_times.append(step_time)
+            
+    #         cpu_mem, gpu_mem = get_memory_usage()
+    #         max_cpu_rollout = max(max_cpu_rollout, cpu_mem)
+    #         max_gpu_rollout = max(max_gpu_rollout, gpu_mem)
+
     with torch.no_grad():
+        z_current = forward_model.K_S(current_state)
+        
+        z_preds = [z_current]
+        
         for step in range(n_steps):
-            z_current = forward_model.K_S(current_state)
-            z_next = forward_model.latent_forward(z_current)
-            next_state = forward_model.K_S_preimage(z_next)
-            
+            step_start = time.time()
+
+            z_current = forward_model.latent_forward(z_current)
+            z_preds.append(z_current)
+
+            step_time = time.time() - step_start
+            step_times.append(step_time)
+
+            cpu_mem, gpu_mem = get_memory_usage()
+            max_cpu_rollout = max(max_cpu_rollout, cpu_mem)
+            max_gpu_rollout = max(max_gpu_rollout, gpu_mem)
+
+        for z in z_preds[1:]:
+            next_state = forward_model.K_S_preimage(z)
             predictions.append(next_state)
-            current_state = next_state
-            
+    
+    rollout_time = time.time() - start_time
+    avg_step_time = sum(step_times) / len(step_times)
+    
+    print(f"Rollout total time: {rollout_time:.4f}s")
+    print(f"Average time per step: {avg_step_time:.4f}s")
+    print(f"Memory usage - CPU: {max_cpu_rollout:.2f}GB, GPU: {max_gpu_rollout:.2f}GB")
+    
+    inference_stats['rollout'] = {
+        'total_time': rollout_time,
+        'avg_time_per_step': avg_step_time,
+        'max_cpu_memory': max_cpu_rollout,
+        'max_gpu_memory': max_gpu_rollout,
+        'step_times': step_times
+    }
+
     rollout = torch.cat(predictions, dim=0)
     rollout = torch.cat([normalize_groundtruth[0:1, ...], rollout[:-1, ...]])
     de_rollout = denorm(rollout)
-    print(de_rollout.shape)
-    print(de_rollout.min())
-    print(de_rollout.max())
+    # print(de_rollout.shape)
+    # print(de_rollout.min())
+    # print(de_rollout.max())
 
-    plot_comparisons(groundtruth, de_reconstruct, de_onestep, de_rollout, time_indices=[1, 4, 7, 9])
+    np.save(fig_save_path + 'kol_rollout.npy', de_rollout)
+
+    inference_stats['config'] = {
+        'prediction_step': prediction_step,
+        'forward_step': foward_step,
+        'val_idx': val_idx,
+        'start_T': start_T
+    }
+    
+    save_inference_stats(inference_stats, os.path.join(fig_save_path, 'kol_inference_stats.pkl'))
+
+
+    plot_comparisons(groundtruth, de_reconstruct, de_onestep, de_rollout,
+                     time_indices=[1, 30, 60, 90], save_dir=fig_save_path)
+    
+    # Compute Metric
+
+    overall_metrics = compute_metrics(groundtruth, de_reconstruct, de_onestep, de_rollout)
+    
+    print("Overall metric:")
+    for method, metrics in overall_metrics.items():
+        print(f"{method}:")
+        for metric_name, value in metrics.items():
+            print(f"  {metric_name}: {value:.6f}")
+        print()
+    
+    temporal_metrics = compute_temporal_metrics(groundtruth, de_reconstruct, de_onestep, de_rollout)
+    
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    metrics_names = ['MSE', 'MAE', 'Relative_L2', 'SSIM']
+    
+    for i, metric_name in enumerate(metrics_names):
+        ax = axes[i//2, i%2]
+        
+        for method in ['reconstruction', 'onestep', 'rollout']:
+            values = temporal_metrics[method][metric_name]
+            ax.plot(values, label=method)
+        
+        ax.set_xlabel('Time Step')
+        ax.set_ylabel(metric_name)
+        ax.set_title(f'{metric_name} over Time')
+        ax.legend()
+        ax.grid(True)
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(fig_save_path, "kol_perframe_metric.png"))

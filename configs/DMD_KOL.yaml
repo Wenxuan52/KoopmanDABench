@@ -1,0 +1,9 @@
+# DMD Configuration for Cylinder Flow Dataset
+
+# Model parameters
+rank: 512
+seq_length: 5
+
+use_gpu: True
+
+save_folder: "../../../../results/DMD/KMG"  # Where to save results

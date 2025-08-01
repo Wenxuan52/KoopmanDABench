@@ -2,15 +2,13 @@ from torch.nn.modules import Module
 
 import sys
 import os
-sys.path.append(os.path.abspath(".."))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from base import *
 
 # State dimension = 2 channels, 64x64 resolution
 KOL_settings = {"obs_dim": [1, 64, 64],
                     "state_dim": [1, 64, 64], 
-                    "seq_length": 5,
-                    "obs_feature_dim": [512, 128, 64, 32, 16, 8], 
-                    "state_filter_feature_dim": [16, 32, 64, 128, 256]}
+                    "seq_length": 5}
 
 # Calculate the correct feature dimension after convolutions and pooling
 # Input: 64x64 -> Conv7x7 -> Pool -> 32x32 -> Conv5x5 -> Pool -> 16x16 

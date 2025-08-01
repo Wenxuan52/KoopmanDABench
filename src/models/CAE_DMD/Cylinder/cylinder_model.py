@@ -2,7 +2,8 @@ from torch.nn.modules import Module
 
 import sys
 import os
-sys.path.append(os.path.abspath(".."))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from base import *
 
 # State dimension = 2 channels, 64x64 resolution

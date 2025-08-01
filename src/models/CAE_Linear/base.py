@@ -8,7 +8,8 @@ from torch import Tensor
 
 import os
 import sys
-current_directory = os.getcwd()
+
+current_directory = os.path.dirname(os.path.abspath(__file__))
 src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", ".."))
 sys.path.append(src_directory)
 

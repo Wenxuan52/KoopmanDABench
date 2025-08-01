@@ -117,6 +117,11 @@ def compute_metrics(groundtruth, reconstruction, onestep, rollout):
         l2_error = torch.norm(pred - gt)
         l2_gt = torch.norm(gt)
         relative_l2 = (l2_error / l2_gt).item()
+
+        # RRMSE
+        rmse = torch.sqrt(F.mse_loss(pred, gt))
+        gt_mean = torch.mean(gt)
+        rrmse = (rmse / gt_mean).item()
         
         # SSIM
         ssim_values = []
@@ -129,6 +134,7 @@ def compute_metrics(groundtruth, reconstruction, onestep, rollout):
             'MSE': mse,
             'MAE': mae,
             'Relative_L2': relative_l2,
+            'RRMSE': rrmse,
             'SSIM': avg_ssim
         }
     
@@ -149,6 +155,7 @@ def compute_temporal_metrics(groundtruth, reconstruction, onestep, rollout):
         mse_list = []
         mae_list = []
         relative_l2_list = []
+        rrmse_list = []
         ssim_list = []
         
         for t in range(T):
@@ -168,6 +175,12 @@ def compute_temporal_metrics(groundtruth, reconstruction, onestep, rollout):
             l2_gt = torch.norm(gt_t)
             relative_l2 = (l2_error / l2_gt).item()
             relative_l2_list.append(relative_l2)
+
+            # RRMSE
+            rmse = torch.sqrt(F.mse_loss(pred_t, gt_t))
+            gt_mean = torch.mean(gt_t)
+            rrmse = (rmse / gt_mean).item()
+            rrmse_list.append(rrmse)
             
             # SSIM
             ssim_val = ssim(gt_np[t, 0], pred_np[t, 0], data_range=gt_np[t, 0].max() - gt_np[t, 0].min())
@@ -177,6 +190,7 @@ def compute_temporal_metrics(groundtruth, reconstruction, onestep, rollout):
             'MSE': mse_list,
             'MAE': mae_list,
             'Relative_L2': relative_l2_list,
+            'RRMSE': rrmse_list,
             'SSIM': ssim_list
         }
     
@@ -189,7 +203,7 @@ def compute_temporal_metrics(groundtruth, reconstruction, onestep, rollout):
 
 
 if __name__ == '__main__':
-    fig_save_path = '../../../results/DMD/figures/'
+    fig_save_path = '../../../../results/CAE_DMD/figures/'
     
     start_T = 700
     
@@ -199,12 +213,12 @@ if __name__ == '__main__':
 
     val_idx = 3
 
-    cyl_train_dataset = CylinderDynamicsDataset(data_path="../../../data/cylinder/cylinder_train_data.npy",
+    cyl_train_dataset = CylinderDynamicsDataset(data_path="../../../../data/cylinder/cylinder_train_data.npy",
                 seq_length = foward_step,
                 mean=None,
                 std=None)
     
-    cyl_val_dataset = CylinderDynamicsDataset(data_path="../../../data/cylinder/cylinder_val_data.npy",
+    cyl_val_dataset = CylinderDynamicsDataset(data_path="../../../../data/cylinder/cylinder_val_data.npy",
                 seq_length = foward_step,
                 mean=cyl_train_dataset.mean,
                 std=cyl_train_dataset.std)
@@ -222,8 +236,8 @@ if __name__ == '__main__':
     print(raw_data_uv.shape)
     
     forward_model = CYLINDER_C_FORWARD()
-    forward_model.load_state_dict(torch.load('cyl_model_weights/forward_model.pt', weights_only=True, map_location='cpu'))
-    forward_model.C_forward = torch.load('cyl_model_weights/C_forward.pt', weights_only=True, map_location='cpu')
+    forward_model.load_state_dict(torch.load('../../../../results/CAE_DMD/Cylinder/cyl_model_weights/forward_model.pt', weights_only=True, map_location='cpu'))
+    forward_model.C_forward = torch.load('../../../../results/CAE_DMD/Cylinder/cyl_model_weights/C_forward.pt', weights_only=True, map_location='cpu')
     forward_model.eval()
 
     print(torch.norm(forward_model.C_forward))
@@ -240,6 +254,11 @@ if __name__ == '__main__':
     state = normalize_groundtruth
 
     inference_stats = {}
+
+    # Warm Up
+    with torch.no_grad():
+        z = forward_model.K_S(state)
+        reconstruct = forward_model.K_S_preimage(z)
     
     print("=== Reconstruction Inference ===")
     start_time = time.time()
@@ -281,14 +300,6 @@ if __name__ == '__main__':
         z_next = forward_model.latent_forward(z_current)
         onestep = forward_model.K_S_preimage(z_next)
 
-    onestep = torch.cat([normalize_groundtruth[0:1, ...], onestep[:-1, ...]])
-    de_onestep = denorm(onestep)
-    de_onestep_uv = (de_onestep[:, 0, :, :] ** 2 + de_onestep[:, 1, :, :] ** 2) ** 0.5
-    de_onestep_uv = de_onestep_uv.unsqueeze(1)
-    # print(de_onestep_uv.shape)
-    # print(de_onestep_uv.min())
-    # print(de_onestep_uv.max())
-
     onestep_time = time.time() - start_time
     end_cpu, end_gpu = get_memory_usage()
     max_cpu_onestep = max(start_cpu, end_cpu)
@@ -304,6 +315,14 @@ if __name__ == '__main__':
         'max_gpu_memory': max_gpu_onestep
     }
 
+    onestep = torch.cat([normalize_groundtruth[0:1, ...], onestep[:-1, ...]])
+    de_onestep = denorm(onestep)
+    de_onestep_uv = (de_onestep[:, 0, :, :] ** 2 + de_onestep[:, 1, :, :] ** 2) ** 0.5
+    de_onestep_uv = de_onestep_uv.unsqueeze(1)
+    # print(de_onestep_uv.shape)
+    # print(de_onestep_uv.min())
+    # print(de_onestep_uv.max())
+
     print("\n=== Rollout Inference ===")
     predictions = []
     current_state = state[0, ...].unsqueeze(0)
@@ -317,23 +336,45 @@ if __name__ == '__main__':
 
     step_times = []
     
+    # with torch.no_grad():
+    #     for step in range(n_steps):
+    #         step_start = time.time()
+
+    #         z_current = forward_model.K_S(current_state)
+    #         z_next = forward_model.latent_forward(z_current)
+    #         next_state = forward_model.K_S_preimage(z_next)
+            
+    #         predictions.append(next_state)
+    #         current_state = next_state
+
+    #         step_time = time.time() - step_start
+    #         step_times.append(step_time)
+            
+    #         cpu_mem, gpu_mem = get_memory_usage()
+    #         max_cpu_rollout = max(max_cpu_rollout, cpu_mem)
+    #         max_gpu_rollout = max(max_gpu_rollout, gpu_mem)
+
     with torch.no_grad():
+        z_current = forward_model.K_S(current_state)
+        
+        z_preds = [z_current]
+        
         for step in range(n_steps):
             step_start = time.time()
 
-            z_current = forward_model.K_S(current_state)
-            z_next = forward_model.latent_forward(z_current)
-            next_state = forward_model.K_S_preimage(z_next)
-            
-            predictions.append(next_state)
-            current_state = next_state
+            z_current = forward_model.latent_forward(z_current)
+            z_preds.append(z_current)
 
             step_time = time.time() - step_start
             step_times.append(step_time)
-            
+
             cpu_mem, gpu_mem = get_memory_usage()
             max_cpu_rollout = max(max_cpu_rollout, cpu_mem)
             max_gpu_rollout = max(max_gpu_rollout, gpu_mem)
+
+        for z in z_preds[1:]:
+            next_state = forward_model.K_S_preimage(z)
+            predictions.append(next_state)
     
     rollout_time = time.time() - start_time
     avg_step_time = sum(step_times) / len(step_times)
@@ -362,6 +403,8 @@ if __name__ == '__main__':
     # print(de_rollout_uv.min())
     # print(de_rollout_uv.max())
 
+    np.save(fig_save_path + 'cyl_rollout.npy', de_rollout_uv)
+
     inference_stats['config'] = {
         'prediction_step': prediction_step,
         'forward_step': foward_step,
@@ -369,7 +412,7 @@ if __name__ == '__main__':
         'start_T': start_T
     }
     
-    save_inference_stats(inference_stats, os.path.join(fig_save_path, 'inference_stats.pkl'))
+    save_inference_stats(inference_stats, os.path.join(fig_save_path, 'cyl_inference_stats.pkl'))
 
     plot_comparisons(raw_data_uv, de_reconstruct_uv, de_onestep_uv, de_rollout_uv,
                     time_indices=[1, 50, 100, 200, 299], save_dir=fig_save_path)
@@ -388,20 +431,11 @@ if __name__ == '__main__':
     
     temporal_metrics = compute_temporal_metrics(raw_data_uv, de_reconstruct_uv, de_onestep_uv, de_rollout_uv)
     
-    print("Per Time Frame Metric (first 5 frames):")
-    for method, metrics in temporal_metrics.items():
-        print(f"{method}:")
-        for metric_name, values in metrics.items():
-            print(f"  {metric_name}: {values[:5]}")
-        print()
-    
-    import matplotlib.pyplot as plt
-    
-    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    metrics_names = ['MSE', 'MAE', 'Relative_L2', 'SSIM']
+    fig, axes = plt.subplots(1, 5, figsize=(40, 10))
+    metrics_names = ['MSE', 'MAE', 'Relative_L2', 'RRMSE', 'SSIM']
     
     for i, metric_name in enumerate(metrics_names):
-        ax = axes[i//2, i%2]
+        ax = axes[i]
         
         for method in ['reconstruction', 'onestep', 'rollout']:
             values = temporal_metrics[method][metric_name]
