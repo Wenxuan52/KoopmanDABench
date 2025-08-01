@@ -12,6 +12,7 @@
 source /scratch_dgxl/wy524/miniconda3/etc/profile.d/conda.sh
 conda activate irp-env
 
-cd src/models/CAE_DMD/KMG
+# Cylinder / KMG
+cd src/models/CAE_Linear/KMG
 
 jupyter nbconvert --to notebook --execute --inplace kol_DA_randob.ipynb --ExecutePreprocessor.timeout=86400

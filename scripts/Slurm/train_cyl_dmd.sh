@@ -13,5 +13,5 @@
 source /scratch_dgxl/wy524/miniconda3/etc/profile.d/conda.sh
 conda activate irp-env
 
-cd src/models/CAE_DMD/Cylinder
+cd src/models/DMD/Cylinder
 python cylinder_trainer.py

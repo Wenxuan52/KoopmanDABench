@@ -2,6 +2,7 @@ data/kolmogorov/
 data/lorenz63/
 data/Cylinder/
 data/cylinder/
+data/dam/
 data/2DAdvdiffEq/
 data/CHAP/
 
@@ -25,5 +26,5 @@ saved_models/
 
 *.log
 
-*model_weights
+*model_weights*
 

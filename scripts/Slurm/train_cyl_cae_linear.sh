@@ -13,5 +13,5 @@
 source /scratch_dgxl/wy524/miniconda3/etc/profile.d/conda.sh
 conda activate irp-env
 
-cd src/models/CAE_Linear
+cd src/models/CAE_Linear/Cylinder
 python cylinder_trainer.py
