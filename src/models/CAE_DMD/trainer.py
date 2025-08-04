@@ -271,6 +271,7 @@ def train_ms_forward_model(forward_model,
                            model_save_folder: str,
                            learning_rate: float = 1e-3,
                            lamb: float = 0.3,
+                           lamb_ms: float = 0.3,
                            weight_decay: float = 0,
                            batch_size: int = 64,
                            num_epochs: int = 20,
@@ -328,7 +329,7 @@ def train_ms_forward_model(forward_model,
                 loss_fwd, loss_id, loss_multi, tmp_C_fwd = forward_model.compute_loss_multi_step(
                     pre_sequences, post_sequences, multi_step)
 
-            loss = loss_fwd + lamb * loss_id + loss_multi
+            loss = loss_fwd + lamb * loss_id + lamb_ms * loss_multi
 
             optimizer.zero_grad()
             loss.backward()

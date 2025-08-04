@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH --job-name=cylinder_dmd
+#SBATCH --job-name=cylinder_cae_dmd
 #SBATCH --partition=dgxl_irp
 #SBATCH --qos=dgxl_irp_low
 #SBATCH --gres=gpu:1

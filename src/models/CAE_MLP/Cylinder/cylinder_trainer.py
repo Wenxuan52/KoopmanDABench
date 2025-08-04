@@ -5,13 +5,18 @@ import os
 import sys
 
 current_directory = os.getcwd()
+src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", ".."))
+sys.path.append(src_directory)
+
+import os
+import sys
+current_directory = os.getcwd()
 src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", "..", ".."))
 sys.path.append(src_directory)
 
 from src.utils.Dataset import CylinderDynamicsDataset
 
-from src.models.CAE_MLP.trainer import (set_seed, train_jointly_forward_model, train_cae_pretraining, 
-                    train_linear_predictor, save_training_log, load_best_model)
+from src.models.CAE_MLP.trainer import (set_seed, train_jointly_forward_model, save_training_log, load_best_model)
 
 
 def main():
@@ -66,7 +71,6 @@ def main():
             model_save_folder=config['jointly_save_folder'],
             learning_rate=config['learning_rate'],
             lamb=config['lamb'],
-            lamb_linear=config['lamb_linear'],
             batch_size=config['batch_size'],
             num_epochs=config['S1_epochs'],
             decay_step=config['decay_step'],
@@ -76,115 +80,6 @@ def main():
         
         save_training_log(train_loss, val_loss, 'jointly', 
                          f"{config['jointly_save_folder']}/losses", 0)
-    
-    elif config['train_mode'] == 'separately':
-        print("\n" + "="*50)
-        print("TWO-STAGE TRAINING")
-        print("="*50)
-        
-        # Stage 1: CAE Pre-training
-        print("\nStage 1: CAE Pre-training")
-        train_loss_1, val_loss_1 = train_cae_pretraining(
-            forward_model=forward_model,
-            train_dataset=cyl_train_dataset,
-            val_dataset=cyl_val_dataset,
-            model_save_folder=config['cae_save_folder'],
-            learning_rate=config['learning_rate'],
-            batch_size=config['batch_size'],
-            num_epochs=config['S1_epochs'],
-            decay_step=config['decay_step'],
-            decay_rate=config['decay_rate'],
-            device=device
-        )
-        
-        save_training_log(train_loss_1, val_loss_1, 'cae_pretraining',
-                         f"{config['cae_save_folder']}/losses", 1)
-        
-        # Stage 2: Load best CAE model and train linear predictor
-        print("\nStage 2: Linear Predictor Training")
-        forward_model = load_best_model(forward_model, config['cae_save_folder'], device)
-        
-        train_loss_2, val_loss_2 = train_linear_predictor(
-            forward_model=forward_model,
-            train_dataset=cyl_train_dataset,
-            val_dataset=cyl_val_dataset,
-            model_save_folder=config['linear_save_folder'],
-            learning_rate=config['learning_rate'],
-            lamb=config['lamb'],
-            batch_size=config['batch_size'],
-            num_epochs=config['S2_epochs'],
-            decay_step=config['decay_step'],
-            decay_rate=config['decay_rate'],
-            device=device
-        )
-        
-        save_training_log(train_loss_2, val_loss_2, 'linear_predictor',
-                         f"{config['linear_save_folder']}/losses", 2)
-    
-    elif config['train_mode'] == 'multiply':
-        print("\n" + "="*50)
-        print("THREE-STAGE MULTIPLY TRAINING")
-        print("="*50)
-        
-        # Stage 1: CAE Pre-training
-        print("\nStage 1: CAE Pre-training")
-        train_loss_1, val_loss_1 = train_cae_pretraining(
-            forward_model=forward_model,
-            train_dataset=cyl_train_dataset,
-            val_dataset=cyl_val_dataset,
-            model_save_folder=config['cae_save_folder'],
-            learning_rate=config['learning_rate'],
-            batch_size=config['batch_size'],
-            num_epochs=config['S1_epochs'],
-            decay_step=config['decay_step'],
-            decay_rate=config['decay_rate'],
-            device=device
-        )
-        
-        save_training_log(train_loss_1, val_loss_1, 'cae_pretraining',
-                         f"{config['cae_save_folder']}/losses", 1)
-        
-        # Stage 2: Load best CAE model and train linear predictor
-        print("\nStage 2: Linear Predictor Training")
-        forward_model = load_best_model(forward_model, config['cae_save_folder'], device)
-        
-        train_loss_2, val_loss_2 = train_linear_predictor(
-            forward_model=forward_model,
-            train_dataset=cyl_train_dataset,
-            val_dataset=cyl_val_dataset,
-            model_save_folder=config['linear_save_folder'],
-            learning_rate=config['learning_rate'],
-            lamb=config['lamb'],
-            batch_size=config['batch_size'],
-            num_epochs=config['S2_epochs'],
-            decay_step=config['decay_step'],
-            decay_rate=config['decay_rate'],
-            device=device
-        )
-        
-        save_training_log(train_loss_2, val_loss_2, 'linear_predictor',
-                         f"{config['linear_save_folder']}/losses", 2)
-        
-        # Stage 3: Load best linear model and joint fine-tuning
-        print("\nStage 3: Joint Fine-tuning")
-        forward_model = load_best_model(forward_model, config['linear_save_folder'], device)
-        
-        train_loss_3, val_loss_3 = train_jointly_forward_model(
-            forward_model=forward_model,
-            train_dataset=cyl_train_dataset,
-            val_dataset=cyl_val_dataset,
-            model_save_folder=config['jointly_save_folder'],
-            learning_rate=config['learning_rate'] * 0.1,  # Lower learning rate for fine-tuning
-            lamb=config['lamb'],
-            batch_size=config['batch_size'],
-            num_epochs=config['S3_epochs'],
-            decay_step=config['decay_step'],
-            decay_rate=config['decay_rate'],
-            device=device
-        )
-        
-        save_training_log(train_loss_3, val_loss_3, 'joint_finetuning',
-                         f"{config['jointly_save_folder']}/losses", 3)
     
     else:
         raise ValueError(f"Unknown training mode: {config['train_mode']}. "

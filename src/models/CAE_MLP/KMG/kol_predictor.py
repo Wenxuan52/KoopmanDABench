@@ -185,9 +185,10 @@ def compute_temporal_metrics(groundtruth, reconstruction, onestep, rollout):
 
 
 if __name__ == '__main__':
+    # from kol_model import KOL_C_FORWARD
     from kol_model import KOL_C_FORWARD
 
-    fig_save_path = '../../../../results/CAE_Weaklinear/figures/'
+    fig_save_path = '../../../../results/CAE_Linear/figures/'
 
     start_T = 150
     
@@ -216,7 +217,7 @@ if __name__ == '__main__':
     print(groundtruth.max())
 
     forward_model = KOL_C_FORWARD()
-    forward_model.load_state_dict(torch.load('../../../../results/CAE_Weaklinear/KMG/model_weights/forward_model.pt', weights_only=True, map_location='cpu'))
+    forward_model.load_state_dict(torch.load('../../../../results/CAE_Linear/KMG/model_weights/forward_model.pt', weights_only=True, map_location='cpu'))
     forward_model.eval()
 
     print(forward_model)
@@ -356,7 +357,6 @@ if __name__ == '__main__':
     }
     
     save_inference_stats(inference_stats, os.path.join(fig_save_path, 'kol_inference_stats.pkl'))
-
 
     plot_comparisons(groundtruth, de_reconstruct, de_onestep, de_rollout,
                      time_indices=[1, 30, 60, 90], save_dir=fig_save_path)

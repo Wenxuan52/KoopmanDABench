@@ -1,0 +1,9 @@
+save_folder: '../../../../results/CAE_Linear/ERA5/model_weights'
+seq_length: 10
+num_epochs: 300
+decay_step: 20
+batch_size: 64
+learning_rate: 0.001
+decay_rate: 0.9
+lamb: 1.0
+patience: 50

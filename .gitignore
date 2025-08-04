@@ -5,6 +5,7 @@ data/cylinder/
 data/dam/
 data/2DAdvdiffEq/
 data/CHAP/
+data/ERA5/
 
 .DS_Store
 .env

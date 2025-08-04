@@ -8,11 +8,12 @@ from torch import Tensor
 
 import os
 import sys
-current_directory = os.getcwd()
+
+current_directory = os.path.dirname(os.path.abspath(__file__))
 src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", ".."))
 sys.path.append(src_directory)
 
-from src.utils.utils import is_symmetric, weighted_MSELoss
+from src.utils.utils import weighted_MSELoss
 
 # Features 
 class K_O_BASE(nn.Module):
@@ -53,18 +54,18 @@ class K_S_preimage_BASE(nn.Module):
 
 class base_forward_model(nn.Module):
     def __init__(self, K_S:nn.Module, K_S_preimage:nn.Module, 
-                       seq_length: int, hidden_dim: int = None, *args, **kwargs) -> None:
+                       seq_length: int, *args, **kwargs) -> None:
         super(base_forward_model, self).__init__(*args, **kwargs)
         self.K_S = K_S
         self.K_S_preimage = K_S_preimage
-        self.hidden_dim = hidden_dim if hidden_dim is not None else K_S.hidden_dims[-1]
+        self.hidden_dim = K_S.hidden_dims[-1]
         self.seq_length = seq_length
         
         # Replace linear layer with MLP for weak nonlinearity
         self.C_forward = nn.Sequential(
-            nn.Linear(self.hidden_dim, self.hidden_dim, bias=False),
+            nn.Linear(self.hidden_dim, 64, bias=True),
             nn.ReLU(),
-            nn.Linear(self.hidden_dim, self.hidden_dim, bias=False)
+            nn.Linear(64, self.hidden_dim, bias=True)
         )
     
     def forward(self, state: torch.Tensor):
@@ -106,6 +107,57 @@ class base_forward_model(nn.Module):
                 loss_identity += F.mse_loss(recon_s, state_seq[:, i, :])
                 
         return loss_fwd, loss_identity, self.C_forward
+    
+    # def compute_loss_multi_step(self, state_seq: torch.Tensor, state_next_seq: torch.Tensor, 
+    #                         multi_step: int, weight_matrix=None):
+    #     """
+    #     Compute loss including multi-step rollout in latent space
+    #     """
+    #     B = state_seq.shape[0]
+    #     device = state_seq.device
+    #     z_seq = torch.zeros(B, self.seq_length, self.hidden_dim).to(device)
+    #     z_next_seq = torch.zeros(B, self.seq_length, self.hidden_dim).to(device)
+
+    #     loss_fwd = 0
+    #     loss_identity = 0
+    #     loss_multi_step = 0
+
+    #     for i in range(self.seq_length):
+    #         z_seq[:, i, :] = self.K_S(state_seq[:, i, :])
+    #         z_next_seq[:, i, :] = self.K_S(state_next_seq[:, i, :])
+
+    #     pred_z_next = self.batch_latent_forward(z_seq)
+
+    #     # Reconstruction & forward loss
+    #     for i in range(self.seq_length):
+    #         recon_s = self.K_S_preimage(z_seq[:, i, :])
+    #         recon_s_next = self.K_S_preimage(pred_z_next[:, i, :])
+
+    #         if weight_matrix is not None:
+    #             loss_fwd += weighted_MSELoss()(recon_s_next, state_next_seq[:, i, :], weight_matrix).sum()
+    #             loss_identity += weighted_MSELoss()(recon_s, state_seq[:, i, :], weight_matrix).sum()
+    #         else:
+    #             loss_fwd += F.mse_loss(recon_s_next, state_next_seq[:, i, :])
+    #             loss_identity += F.mse_loss(recon_s, state_seq[:, i, :])
+
+    #     # multi-step rollout loss
+    #     if multi_step > 1 and self.seq_length > multi_step:
+    #         for start_idx in range(self.seq_length - multi_step):
+    #             current_z = z_seq[:, start_idx, :].clone()  # [B, hidden_dim]
+
+    #             for step in range(multi_step):
+    #                 current_z = self.batch_latent_forward(current_z.unsqueeze(1)).squeeze(1)
+    #                 pred_state = self.K_S_preimage(current_z)
+    #                 target_state = state_seq[:, start_idx + step + 1, :]
+
+    #                 if weight_matrix is not None:
+    #                     loss_multi_step += weighted_MSELoss()(pred_state, target_state, weight_matrix).sum()
+    #                 else:
+    #                     loss_multi_step += F.mse_loss(pred_state, target_state)
+
+    #         loss_multi_step = loss_multi_step / (self.seq_length - multi_step)
+
+    #     return loss_fwd, loss_identity, loss_multi_step, self.C_forward
     
     def save_C_forward(self, path, C_forward):
         C_forward_filename = path + '/' + 'C_forward.pt'

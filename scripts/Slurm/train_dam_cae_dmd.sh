@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH --job-name=dam_dmd
+#SBATCH --job-name=dam_cae_dmd
 #SBATCH --partition=dgxl_irp
 #SBATCH --qos=dgxl_irp_low
 #SBATCH --gres=gpu:1

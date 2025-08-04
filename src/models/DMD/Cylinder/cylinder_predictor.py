@@ -267,26 +267,42 @@ if __name__ == '__main__':
     max_cpu_rollout = start_cpu
     max_gpu_rollout = start_gpu
     
+    # with torch.no_grad():
+    #     rollout_states = []
+    #     # First timestep is the same as groundtruth
+    #     rollout_states.append(state_flat[:, 0:1])
+        
+    #     # Initialize with first state
+    #     current_state = state_flat[:, 0]  # [D]
+        
+    #     # Rollout with encode-forward-decode at each step
+    #     for t in range(1, prediction_step):
+    #         # Encode current state
+    #         b_current = encoder(current_state)
+    #         # Forward in latent space
+    #         b_next = latent_forward(b_current)
+    #         # Decode to physical space
+    #         current_state = decoder(b_next)
+    #         rollout_states.append(current_state.unsqueeze(1))
+        
+    #     rollout_flat = torch.cat(rollout_states, dim=1)  # [D, T]
+
     with torch.no_grad():
-        rollout_states = []
-        # First timestep is the same as groundtruth
-        rollout_states.append(state_flat[:, 0:1])
-        
-        # Initialize with first state
-        current_state = state_flat[:, 0]  # [D]
-        
-        # Rollout with encode-forward-decode at each step
+        # 1. Encode initial physical state to latent space
+        b_0 = encoder(state_flat[:, 0])  # shape: [modes]
+
+        # 2. Propagate in latent space
+        latent_states = [b_0.unsqueeze(1)]  # shape: [modes, 1]
         for t in range(1, prediction_step):
-            # Encode current state
-            b_current = encoder(current_state)
-            # Forward in latent space
-            b_next = latent_forward(b_current)
-            # Decode to physical space
-            current_state = decoder(b_next)
-            rollout_states.append(current_state.unsqueeze(1))
-        
-        rollout_flat = torch.cat(rollout_states, dim=1)  # [D, T]
-    
+            b_next = latent_forward(latent_states[-1][:, 0])  # next latent state
+            latent_states.append(b_next.unsqueeze(1))
+
+        # 3. Stack all latent states
+        latent_states_all = torch.cat(latent_states, dim=1)  # shape: [modes, T]
+
+        # 4. Decode all at once to physical space
+        rollout_flat = decoder(latent_states_all)  # shape: [D, T]
+
     rollout_time = time.time() - start_time
     cpu_mem, gpu_mem = get_memory_usage()
     max_cpu_rollout = max(max_cpu_rollout, cpu_mem)
@@ -325,8 +341,12 @@ if __name__ == '__main__':
     
     # Plot comparisons
     print("\n[INFO] Generating plots...")
+    
     plot_comparisons(raw_data_uv, de_onestep_uv, de_rollout_uv,
                     time_indices=[1, 50, 100, 200, 299], save_dir=fig_save_path)
+
+    # plot_comparisons(raw_data_uv, de_onestep_uv, de_rollout_uv,
+    #             time_indices=[1, 5, 10, 15, 20], save_dir=fig_save_path)
     
     # Compute metrics
     print("\n[INFO] Computing metrics...")

@@ -78,6 +78,7 @@ def main():
     print(f"Total parameters: {total_params:,}")
 
     if config['train_mode'] == 'jointly':
+        pass
         print("\n" + "="*50)
         print("JOINT TRAINING")
         print("="*50)

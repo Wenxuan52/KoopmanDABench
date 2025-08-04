@@ -10,6 +10,8 @@ from torch.nn.utils import clip_grad_norm_
 from tqdm import tqdm
 import yaml
 from typing import Optional
+import time
+import psutil
 
 import os
 import sys
@@ -29,6 +31,24 @@ def set_seed(seed: int = 42):
     torch.backends.cudnn.benchmark = False
     print(f"[INFO] Set random seed to {seed}")
 
+def get_memory_usage():
+    """Get current memory usage for CPU and GPU"""
+    # CPU memory
+    cpu_memory = psutil.virtual_memory().used / 1024**3  # GB
+    
+    # GPU memory
+    gpu_memory = 0
+    if torch.cuda.is_available():
+        gpu_memory = torch.cuda.memory_allocated() / 1024**3  # GB
+    
+    return cpu_memory, gpu_memory
+
+def save_monitoring_stats(stats_dict, save_folder):
+    """Save training monitoring statistics"""
+    stats_path = os.path.join(save_folder, 'training_stats.pkl')
+    with open(stats_path, 'wb') as f:
+        pickle.dump(stats_dict, f)
+    print(f"[INFO] Training statistics saved to: {stats_path}")
 
 def evaluate_forward_model(forward_model, val_dataset, device='cpu', weight_matrix=None, batch_size=64, lamb=0.3):
     """Evaluate forward model on validation set"""
@@ -48,9 +68,9 @@ def evaluate_forward_model(forward_model, val_dataset, device='cpu', weight_matr
                 B = batch_data[0].shape[0]
                 C = batch_data[0].shape[2]
                 weight_matrix_batch = torch.tensor(weight_matrix, dtype=torch.float32).repeat(B, C, 1, 1).to(device)
-                loss_fwd, loss_id, loss_lat, _ = forward_model.compute_loss(pre_sequences, post_sequences, weight_matrix_batch)
+                loss_fwd, loss_id, _ = forward_model.compute_loss(pre_sequences, post_sequences, weight_matrix_batch)
             else:
-                loss_fwd, loss_id, loss_lat, _ = forward_model.compute_loss(pre_sequences, post_sequences)
+                loss_fwd, loss_id, _ = forward_model.compute_loss(pre_sequences, post_sequences)
             
             total_fwd_loss += loss_fwd.item()
             total_id_loss += loss_id.item()
@@ -78,7 +98,8 @@ def train_jointly_forward_model(forward_model,
                        decay_rate: float = 0.8,
                        gradclip: float = 1,
                        device: str = 'cpu',
-                       weight_matrix=None):
+                       weight_matrix=None,
+                       patience: int =50):
     
     print(f"[INFO] Training forward model jointly for {num_epochs} epochs")
     if not os.path.exists(model_save_folder):
@@ -90,6 +111,11 @@ def train_jointly_forward_model(forward_model,
     train_loss = {'forward': [], 'id': [], 'total': []}
     val_loss = {'forward': [], 'id': [], 'total': []}
     
+    # Initialize monitoring variables
+    epoch_times = []
+    max_cpu_memory = 0
+    max_gpu_memory = 0
+
     # Unfreeze all parameters
     for param in forward_model.parameters():
         param.requires_grad = True
@@ -104,10 +130,13 @@ def train_jointly_forward_model(forward_model,
     forward_model.to(device)
     
     best_val_loss = np.inf
-    patience = 50
+    patience = patience
     patience_counter = 0
     
     for epoch in range(num_epochs):
+        # Start timing for this epoch
+        epoch_start_time = time.time()
+
         epoch_train_fwd = []
         epoch_train_id = []
         epoch_train_total = []
@@ -136,6 +165,11 @@ def train_jointly_forward_model(forward_model,
             epoch_train_fwd.append(loss_fwd.item())
             epoch_train_id.append(loss_id.item())
             epoch_train_total.append(loss.item())
+
+            # Monitor peak memory usage during training
+            cpu_mem, gpu_mem = get_memory_usage()
+            max_cpu_memory = max(max_cpu_memory, cpu_mem)
+            max_gpu_memory = max(max_gpu_memory, gpu_mem)
         
         # Calculate average training losses
         train_loss['forward'].append(np.mean(epoch_train_fwd))
@@ -150,7 +184,11 @@ def train_jointly_forward_model(forward_model,
         val_loss['forward'].append(val_fwd_loss_epoch)
         val_loss['id'].append(val_id_loss_epoch)
         
-        print(f'Epoch [{epoch+1}/{num_epochs}]')
+        # Record epoch time
+        epoch_time = time.time() - epoch_start_time
+        epoch_times.append(epoch_time)
+
+        print(f'Epoch [{epoch+1}/{num_epochs}] - Time: {epoch_time:.2f}s')
         print(f'Train - Total: {train_loss["total"][-1]:.4f}, Forward: {train_loss["forward"][-1]:.4f}, ID: {train_loss["id"][-1]:.4f}')
         print(f'Val   - Total: {val_loss_epoch:.4f}, Forward: {val_fwd_loss_epoch:.4f}, ID: {val_id_loss_epoch:.4f}')
         
@@ -170,214 +208,160 @@ def train_jointly_forward_model(forward_model,
         scheduler.step()
         print('')
     
+    # Save monitoring statistics
+    avg_epoch_time = np.mean(epoch_times)
+    save_monitoring_stats({
+        'avg_epoch_time': avg_epoch_time,
+        'max_cpu_memory': max_cpu_memory,
+        'max_gpu_memory': max_gpu_memory,
+        'epoch_times': epoch_times
+    }, model_save_folder)
+    
     print(f"[INFO] Training completed. Best validation loss: {best_val_loss:.4f}")
+    print(f"[INFO] Average epoch time: {avg_epoch_time:.2f}s")
+    print(f"[INFO] Peak memory usage - CPU: {max_cpu_memory:.2f}GB, GPU: {max_gpu_memory:.2f}GB")
+    
     return train_loss, val_loss
 
-
-def train_cae_pretraining(forward_model,
-                         train_dataset,
-                         val_dataset,
-                         model_save_folder: str,
-                         learning_rate: float = 1e-3,
-                         weight_decay: float = 0,
-                         batch_size: int = 64,
-                         num_epochs: int = 20,
-                         decay_step: int = 20,
-                         decay_rate: float = 0.8,
-                         gradclip: float = 1,
-                         device: str = 'cpu',
-                         weight_matrix=None):
+def evaluate_ms_forward_model(forward_model, val_dataset, device='cpu', weight_matrix=None, batch_size=64, lamb=0.3, multi_step=3):
+    """Evaluate multi-step forward model on validation set"""
+    forward_model.eval()
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     
-    print(f"[INFO] Stage 1: CAE Pre-training for {num_epochs} epochs")
+    total_loss = 0.0
+    total_fwd_loss = 0.0
+    total_id_loss = 0.0
+    total_ms_loss = 0.0
+    num_batches = 0
+    
+    with torch.no_grad():
+        for batch_data in val_dataloader:
+            pre_sequences, post_sequences = [data.to(device) for data in batch_data]
+            
+            if weight_matrix is not None:
+                B = pre_sequences.shape[0]
+                C = pre_sequences.shape[2]
+                weight_matrix_batch = torch.tensor(weight_matrix, dtype=torch.float32).repeat(B, C, 1, 1).to(device)
+                loss_fwd, loss_id, loss_multi, _ = forward_model.compute_loss_multi_step(pre_sequences, post_sequences, multi_step, weight_matrix_batch)
+            else:
+                loss_fwd, loss_id, loss_multi, _ = forward_model.compute_loss_multi_step(pre_sequences, post_sequences, multi_step)
+            
+            total_fwd_loss += loss_fwd.item()
+            total_id_loss += loss_id.item()
+            total_ms_loss += loss_multi.item()
+            total_loss += (loss_fwd + lamb * loss_id + loss_multi).item()
+            num_batches += 1
+    
+    avg_loss = total_loss / num_batches
+    avg_fwd_loss = total_fwd_loss / num_batches
+    avg_id_loss = total_id_loss / num_batches
+    avg_ms_loss = total_ms_loss / num_batches
+    
+    forward_model.train()
+    return avg_loss, avg_fwd_loss, avg_id_loss, avg_ms_loss
+
+def train_ms_forward_model(forward_model, 
+                           train_dataset,
+                           val_dataset,
+                           model_save_folder: str,
+                           learning_rate: float = 1e-3,
+                           lamb: float = 0.3,
+                           lamb_ms: float = 0.3,
+                           weight_decay: float = 0,
+                           batch_size: int = 64,
+                           num_epochs: int = 20,
+                           decay_step: int = 20,
+                           decay_rate: float = 0.8,
+                           gradclip: float = 1,
+                           device: str = 'cpu',
+                           weight_matrix=None,
+                           patience: int = 50,
+                           multi_step: int = 3):
+    
+    print(f"[INFO] Training multi-step forward model for {num_epochs} epochs")
     if not os.path.exists(model_save_folder):
         os.makedirs(model_save_folder)
     
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    
-    train_loss = {'forward': [], 'id': [], 'total': []}
-    val_loss = {'forward': [], 'id': [], 'total': []}
-    
-    # Freeze linear layer, unfreeze encoder and decoder
-    for param in forward_model.C_forward.parameters():
-        param.requires_grad = False
-    for param in forward_model.K_S.parameters():
-        param.requires_grad = True
-    for param in forward_model.K_S_preimage.parameters():
-        param.requires_grad = True
-    
-    trainable_parameters = filter(lambda p: p.requires_grad, forward_model.parameters())
-    count_parameters(forward_model)
-    
-    optimizer = Adam(trainable_parameters, lr=learning_rate, weight_decay=weight_decay)
-    scheduler = StepLR(optimizer, step_size=decay_step, gamma=decay_rate)
-    
-    forward_model.train()
-    forward_model.to(device)
-    
+    num_samples = train_dataset.total_sample
+
+    train_loss = {'forward': [], 'id': [], 'multi_step': [], 'total': []}
+    val_loss = {'forward': [], 'id': [], 'multi_step': [], 'total': []}
+
     best_val_loss = np.inf
-    patience = 50
     patience_counter = 0
-    
+
+    optimizer = Adam(filter(lambda p: p.requires_grad, forward_model.parameters()),
+                     lr=learning_rate, weight_decay=weight_decay)
+    scheduler = StepLR(optimizer, step_size=decay_step, gamma=decay_rate)
+
+    forward_model.to(device)
+    forward_model.train()
+
+    epoch_times = []
+    max_cpu_memory = 0
+    max_gpu_memory = 0
+
     for epoch in range(num_epochs):
-        epoch_train_fwd = []
-        epoch_train_id = []
-        epoch_train_total = []
-        
+        epoch_start_time = time.time()
+        epoch_train_fwd, epoch_train_id, epoch_train_ms, epoch_train_total = [], [], [], []
+
         for batch_idx, batch_data in tqdm(enumerate(train_dataloader), 
-                                desc=f'CAE Pre-training with lr={optimizer.param_groups[0]["lr"]:.6f}:', 
-                                total=len(train_dataloader)):
-            
-            B = batch_data[0].shape[0]
-            pre_sequences, post_sequences = [data.to(device) for data in batch_data]
-            
-            # Only compute identity loss for CAE pre-training
+                                          desc=f'Training Epochs with lr={optimizer.param_groups[0]["lr"]:.6f}:', 
+                                          total=len(train_dataloader)):
+
+            pre_sequences, post_sequences = [each_data.to(device) for each_data in batch_data]
+            B = pre_sequences.shape[0]
+
             if weight_matrix is not None:
-                C = batch_data[0].shape[2]
+                C = pre_sequences.shape[2]
                 weight_matrix_batch = torch.tensor(weight_matrix, dtype=torch.float32).repeat(B, C, 1, 1).to(device)
-                _, loss_id, _ = forward_model.compute_loss(pre_sequences, post_sequences, weight_matrix_batch)
+                loss_fwd, loss_id, loss_multi, _ = forward_model.compute_loss_multi_step(
+                    pre_sequences, post_sequences, multi_step, weight_matrix_batch)
             else:
-                _, loss_id, _ = forward_model.compute_loss(pre_sequences, post_sequences)
-            
-            loss = loss_id  # Only identity loss for CAE pre-training
-            
+                loss_fwd, loss_id, loss_multi, _ = forward_model.compute_loss_multi_step(
+                    pre_sequences, post_sequences, multi_step)
+
+            loss = loss_fwd + lamb * loss_id + lamb_ms * loss_multi
+
             optimizer.zero_grad()
             loss.backward()
             clip_grad_norm_(forward_model.parameters(), gradclip)
             optimizer.step()
-            
-            epoch_train_fwd.append(0.0)  # No forward loss in CAE pre-training
-            epoch_train_id.append(loss_id.item())
-            epoch_train_total.append(loss.item())
-        
-        train_loss['forward'].append(np.mean(epoch_train_fwd))
-        train_loss['id'].append(np.mean(epoch_train_id))
-        train_loss['total'].append(np.mean(epoch_train_total))
-        
-        # Validation phase
-        _, val_fwd_loss_epoch, val_id_loss_epoch = evaluate_forward_model(
-            forward_model, val_dataset, device, weight_matrix, batch_size=batch_size, lamb=0.0)
-        val_loss_epoch = val_id_loss_epoch  # Only identity loss for validation
-        
-        val_loss['total'].append(val_loss_epoch)
-        val_loss['forward'].append(0.0)
-        val_loss['id'].append(val_id_loss_epoch)
-        
-        print(f'Epoch [{epoch+1}/{num_epochs}]')
-        print(f'Train - Total: {train_loss["total"][-1]:.4f}, ID: {train_loss["id"][-1]:.4f}')
-        print(f'Val   - Total: {val_loss_epoch:.4f}, ID: {val_id_loss_epoch:.4f}')
-        
-        if val_loss_epoch < best_val_loss:
-            best_val_loss = val_loss_epoch
-            patience_counter = 0
-            print(f"[INFO] New best validation loss: {val_loss_epoch:.4f} - Saving model")
-            forward_model.save_model(model_save_folder)
-            forward_model.to(device)
-        else:
-            patience_counter += 1
-            if patience_counter >= patience:
-                print(f"[INFO] Early stopping triggered after {patience} epochs without improvement")
-                break
-        
-        scheduler.step()
-        print('')
-    
-    print(f"[INFO] CAE Pre-training completed. Best validation loss: {best_val_loss:.4f}")
-    return train_loss, val_loss
 
-
-def train_linear_predictor(forward_model,
-                          train_dataset,
-                          val_dataset,
-                          model_save_folder: str,
-                          learning_rate: float = 1e-3,
-                          lamb: float = 0.3,
-                          weight_decay: float = 0,
-                          batch_size: int = 64,
-                          num_epochs: int = 20,
-                          decay_step: int = 20,
-                          decay_rate: float = 0.8,
-                          gradclip: float = 1,
-                          device: str = 'cpu',
-                          weight_matrix=None):
-    
-    print(f"[INFO] Stage 2: Linear Predictor Training for {num_epochs} epochs")
-    
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    
-    train_loss = {'forward': [], 'id': [], 'total': []}
-    val_loss = {'forward': [], 'id': [], 'total': []}
-    
-    # Unfreeze linear layer, freeze encoder and decoder
-    for param in forward_model.C_forward.parameters():
-        param.requires_grad = True
-    for param in forward_model.K_S.parameters():
-        param.requires_grad = False
-    for param in forward_model.K_S_preimage.parameters():
-        param.requires_grad = False
-    
-    trainable_parameters = filter(lambda p: p.requires_grad, forward_model.parameters())
-    count_parameters(forward_model)
-    
-    optimizer = Adam(trainable_parameters, lr=learning_rate, weight_decay=weight_decay)
-    scheduler = StepLR(optimizer, step_size=decay_step, gamma=decay_rate)
-    
-    forward_model.train()
-    forward_model.to(device)
-    
-    best_val_loss = np.inf
-    patience = 50
-    patience_counter = 0
-    
-    for epoch in range(num_epochs):
-        epoch_train_fwd = []
-        epoch_train_id = []
-        epoch_train_total = []
-        
-        for batch_idx, batch_data in tqdm(enumerate(train_dataloader), 
-                                desc=f'Linear Predictor Training with lr={optimizer.param_groups[0]["lr"]:.6f}:', 
-                                total=len(train_dataloader)):
-            
-            B = batch_data[0].shape[0]
-            pre_sequences, post_sequences = [data.to(device) for data in batch_data]
-            
-            if weight_matrix is not None:
-                C = batch_data[0].shape[2]
-                weight_matrix_batch = torch.tensor(weight_matrix, dtype=torch.float32).repeat(B, C, 1, 1).to(device)
-                loss_fwd, loss_id, _ = forward_model.compute_loss(pre_sequences, post_sequences, weight_matrix_batch)
-            else:
-                loss_fwd, loss_id, _ = forward_model.compute_loss(pre_sequences, post_sequences)
-            
-            loss = loss_fwd + lamb * loss_id
-            
-            optimizer.zero_grad()
-            loss.backward()
-            clip_grad_norm_(forward_model.parameters(), gradclip)
-            optimizer.step()
-            
             epoch_train_fwd.append(loss_fwd.item())
             epoch_train_id.append(loss_id.item())
+            epoch_train_ms.append(loss_multi.item())
             epoch_train_total.append(loss.item())
-        
+
+            cpu_mem, gpu_mem = get_memory_usage()
+            max_cpu_memory = max(max_cpu_memory, cpu_mem)
+            max_gpu_memory = max(max_gpu_memory, gpu_mem)
+
         train_loss['forward'].append(np.mean(epoch_train_fwd))
         train_loss['id'].append(np.mean(epoch_train_id))
+        train_loss['multi_step'].append(np.mean(epoch_train_ms))
         train_loss['total'].append(np.mean(epoch_train_total))
-        
-        # Validation phase
-        val_loss_epoch, val_fwd_loss_epoch, val_id_loss_epoch = evaluate_forward_model(
-            forward_model, val_dataset, device, weight_matrix, batch_size=batch_size, lamb=lamb)
-        
-        val_loss['total'].append(val_loss_epoch)
-        val_loss['forward'].append(val_fwd_loss_epoch)
-        val_loss['id'].append(val_id_loss_epoch)
-        
-        print(f'Epoch [{epoch+1}/{num_epochs}]')
-        print(f'Train - Total: {train_loss["total"][-1]:.4f}, Forward: {train_loss["forward"][-1]:.4f}, ID: {train_loss["id"][-1]:.4f}')
-        print(f'Val   - Total: {val_loss_epoch:.4f}, Forward: {val_fwd_loss_epoch:.4f}, ID: {val_id_loss_epoch:.4f}')
-        
-        if val_loss_epoch < best_val_loss:
-            best_val_loss = val_loss_epoch
+
+        val_total, val_fwd, val_id, val_ms = evaluate_ms_forward_model(
+            forward_model, val_dataset, device, weight_matrix, batch_size, lamb, multi_step)
+
+        val_loss['total'].append(val_total)
+        val_loss['forward'].append(val_fwd)
+        val_loss['id'].append(val_id)
+        val_loss['multi_step'].append(val_ms)
+
+        epoch_time = time.time() - epoch_start_time
+        epoch_times.append(epoch_time)
+
+        print(f"Epoch [{epoch+1}/{num_epochs}] - Time: {epoch_time:.2f}s")
+        print(f"Train - Total: {train_loss['total'][-1]:.4f}, FWD: {train_loss['forward'][-1]:.4f}, ID: {train_loss['id'][-1]:.4f}, MS: {train_loss['multi_step'][-1]:.4f}")
+        print(f"Val   - Total: {val_total:.4f}, FWD: {val_fwd:.4f}, ID: {val_id:.4f}, MS: {val_ms:.4f}")
+
+        if val_total < best_val_loss:
+            best_val_loss = val_total
             patience_counter = 0
-            print(f"[INFO] New best validation loss: {val_loss_epoch:.4f} - Saving model")
+            print(f"[INFO] New best validation loss: {val_total:.4f} - Saving model")
             forward_model.save_model(model_save_folder)
             forward_model.to(device)
         else:
@@ -385,11 +369,22 @@ def train_linear_predictor(forward_model,
             if patience_counter >= patience:
                 print(f"[INFO] Early stopping triggered after {patience} epochs without improvement")
                 break
-        
+
         scheduler.step()
-        print('')
-    
-    print(f"[INFO] Linear Predictor Training completed. Best validation loss: {best_val_loss:.4f}")
+        print()
+
+    avg_epoch_time = np.mean(epoch_times)
+    save_monitoring_stats({
+        'avg_epoch_time': avg_epoch_time,
+        'max_cpu_memory': max_cpu_memory,
+        'max_gpu_memory': max_gpu_memory,
+        'epoch_times': epoch_times
+    }, model_save_folder)
+
+    print(f"[INFO] Training completed. Best validation loss: {best_val_loss:.4f}")
+    print(f"[INFO] Average epoch time: {avg_epoch_time:.2f}s")
+    print(f"[INFO] Peak memory usage - CPU: {max_cpu_memory:.2f}GB, GPU: {max_gpu_memory:.2f}GB")
+
     return train_loss, val_loss
 
 

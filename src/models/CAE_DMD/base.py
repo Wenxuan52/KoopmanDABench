@@ -122,11 +122,21 @@ class base_forward_model(nn.Module):
                 loss_identity += F.mse_loss(recon_s, state_seq[:, i, :])
                 
         return loss_fwd, loss_identity, self.C_forward.mean(dim=0)
-    
+
     def compute_loss_multi_step(self, state_seq: torch.Tensor, state_next_seq: torch.Tensor, 
-                           multi_step: int, weight_matrix=None):
+                       multi_step: int, weight_matrix=None):
         B = state_seq.shape[0]
         device = state_seq.device
+        
+        original_state_shape = state_seq.shape[2:]
+        
+        if len(state_seq.shape) > 3:
+            state_seq_flat = state_seq.view(B, self.seq_length, -1)
+            state_next_seq_flat = state_next_seq.view(B, self.seq_length, -1)
+        else:
+            state_seq_flat = state_seq
+            state_next_seq_flat = state_next_seq
+        
         z_seq = torch.zeros(B, self.seq_length, self.hidden_dim).to(device)
         z_next_seq = torch.zeros(B, self.seq_length, self.hidden_dim).to(device)
 
@@ -135,8 +145,14 @@ class base_forward_model(nn.Module):
         loss_multi_step = 0
 
         for i in range(self.seq_length):
-            z_seq[:, i, :] = self.K_S(state_seq[:, i, :])
-            z_next_seq[:, i, :] = self.K_S(state_next_seq[:, i, :])
+            if len(original_state_shape) > 1:
+                state_reshaped = state_seq_flat[:, i, :].view(B, *original_state_shape)
+                state_next_reshaped = state_next_seq_flat[:, i, :].view(B, *original_state_shape)
+                z_seq[:, i, :] = self.K_S(state_reshaped)
+                z_next_seq[:, i, :] = self.K_S(state_next_reshaped)
+            else:
+                z_seq[:, i, :] = self.K_S(state_seq_flat[:, i, :])
+                z_next_seq[:, i, :] = self.K_S(state_next_seq_flat[:, i, :])
 
         z_seq_pinv = self.batch_pinv(z_seq)
         forward_weights = torch.bmm(z_seq_pinv, z_next_seq).mean(dim=0).repeat(B, 1, 1)
@@ -147,24 +163,44 @@ class base_forward_model(nn.Module):
         for i in range(self.seq_length):
             recon_s = self.K_S_preimage(z_seq[:, i, :])
             recon_s_next = self.K_S_preimage(pred_z_next[:, i, :])
+            
+            if recon_s.shape != state_seq_flat[:, i, :].shape:
+                recon_s = recon_s.view(B, -1)
+            if recon_s_next.shape != state_next_seq_flat[:, i, :].shape:
+                recon_s_next = recon_s_next.view(B, -1)
 
             if weight_matrix is not None:
-                loss_fwd += weighted_MSELoss()(recon_s_next, state_next_seq[:, i, :], weight_matrix).sum()
-                loss_identity += weighted_MSELoss()(recon_s, state_seq[:, i, :], weight_matrix).sum()
+                loss_fwd += weighted_MSELoss()(recon_s_next, state_next_seq_flat[:, i, :], weight_matrix).sum()
+                loss_identity += weighted_MSELoss()(recon_s, state_seq_flat[:, i, :], weight_matrix).sum()
             else:
-                loss_fwd += F.mse_loss(recon_s_next, state_next_seq[:, i, :])
-                loss_identity += F.mse_loss(recon_s, state_seq[:, i, :])
+                loss_fwd += F.mse_loss(recon_s_next, state_next_seq_flat[:, i, :])
+                loss_identity += F.mse_loss(recon_s, state_seq_flat[:, i, :])
 
         if multi_step > 1 and self.seq_length > multi_step:
             for start_idx in range(self.seq_length - multi_step):
-                current_z = z_seq[:, start_idx, :].clone()  # [B, hidden_dim]
+                start_z = z_seq[:, start_idx, :].clone()  # [B, hidden_dim]
+
+                current_z = start_z
+                pred_z_sequence = []
                 
                 for step in range(multi_step):
-                    current_z = self.batch_latent_forward(current_z.unsqueeze(1)).squeeze(1)  # [B, hidden_dim]
-                    
-                    pred_state = self.K_S_preimage(current_z)  # [B, state_dim]
-                    
-                    target_state = state_seq[:, start_idx + step + 1, :]  # [B, state_dim]
+                    current_z = self.batch_latent_forward(current_z.unsqueeze(1)).squeeze(1)
+                    pred_z_sequence.append(current_z)
+
+                pred_z_batch = torch.stack(pred_z_sequence, dim=1)  # [B, multi_step, hidden_dim]
+                pred_z_flat = pred_z_batch.view(-1, self.hidden_dim)  # [B*multi_step, hidden_dim]
+                pred_states_decoded = self.K_S_preimage(pred_z_flat)  # [B*multi_step, ...]
+
+                if pred_states_decoded.dim() > 2:
+                    pred_states_decoded = pred_states_decoded.view(pred_states_decoded.shape[0], -1)
+                
+                pred_states = pred_states_decoded.view(B, multi_step, -1)  # [B, multi_step, state_dim]
+
+                target_states = state_seq_flat[:, start_idx+1:start_idx+multi_step+1, :]  # [B, multi_step, state_dim]
+
+                for step in range(multi_step):
+                    pred_state = pred_states[:, step, :]  # [B, state_dim]
+                    target_state = target_states[:, step, :]  # [B, state_dim]
                     
                     if weight_matrix is not None:
                         loss_multi_step += weighted_MSELoss()(pred_state, target_state, weight_matrix).sum()

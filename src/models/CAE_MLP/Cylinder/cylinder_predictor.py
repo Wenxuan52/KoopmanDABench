@@ -120,7 +120,7 @@ def compute_metrics(groundtruth, reconstruction, onestep, rollout):
         rmse = torch.sqrt(F.mse_loss(pred, gt))
         gt_mean = torch.mean(gt)
         rrmse = (rmse / gt_mean).item()
-        
+
         # SSIM
         ssim_values = []
         for t in range(pred_np.shape[0]):
@@ -173,7 +173,7 @@ def compute_temporal_metrics(groundtruth, reconstruction, onestep, rollout):
             l2_gt = torch.norm(gt_t)
             relative_l2 = (l2_error / l2_gt).item()
             relative_l2_list.append(relative_l2)
-
+            
             # RRMSE
             rmse = torch.sqrt(F.mse_loss(pred_t, gt_t))
             gt_mean = torch.mean(gt_t)
@@ -203,7 +203,7 @@ def compute_temporal_metrics(groundtruth, reconstruction, onestep, rollout):
 if __name__ == '__main__':
     from cylinder_model import CYLINDER_C_FORWARD
 
-    fig_save_path = '../../../../results/CAE_Weaklinear/figures/'
+    fig_save_path = '../../../../results/CAE_MLP/figures/'
     
     start_T = 700
     
@@ -236,7 +236,7 @@ if __name__ == '__main__':
     print(raw_data_uv.shape)
     
     forward_model = CYLINDER_C_FORWARD()
-    forward_model.load_state_dict(torch.load('../../../../results/CAE_Weaklinear/Cylinder/jointly_model_weights/forward_model.pt', weights_only=True, map_location='cpu'))
+    forward_model.load_state_dict(torch.load('../../../../results/CAE_MLP/Cylinder/model_weights/forward_model.pt', weights_only=True, map_location='cpu'))
     forward_model.eval()
 
     print(forward_model)
@@ -250,12 +250,12 @@ if __name__ == '__main__':
     state = normalize_groundtruth
 
     inference_stats = {}
-
+    
     # Warm Up
     with torch.no_grad():
         z = forward_model.K_S(state)
         reconstruct = forward_model.K_S_preimage(z)
-    
+
     print("=== Reconstruction Inference ===")
     start_time = time.time()
     start_cpu, start_gpu = get_memory_usage()

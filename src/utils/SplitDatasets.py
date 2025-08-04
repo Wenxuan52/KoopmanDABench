@@ -120,6 +120,28 @@ class DatasetCylinder(BaseDataset):
         print(f"Loaded Cylinder data with shape: {data.shape}")
         
         self.data = data
+    
+    # def _split_data(self):
+    #     """Split data into train/val sets using evenly spaced sampling for val"""
+    #     n_samples = len(self.data)
+    #     val_size = int(n_samples * (1 - self.train_ratio))
+        
+    #     # Compute validation indices: start from 0, step evenly to cover val_size samples
+    #     step = n_samples // val_size
+    #     val_idx = list(range(0, n_samples, step))[:val_size]
+
+    #     val_idx.append(n_samples - 1)
+
+    #     # Compute training indices: all others not in val_idx
+    #     val_idx_set = set(val_idx)
+    #     train_idx = [i for i in range(n_samples) if i not in val_idx_set]
+
+    #     print(f"Train indices: {train_idx}")
+    #     print(f"Val indices: {val_idx}")
+
+    #     self.train_data = self.data[train_idx]
+    #     self.val_data = self.data[val_idx]
+
 
 class DatasetDam(BaseDataset):
     """Dataset for Dam flow data"""
@@ -190,18 +212,18 @@ if __name__ == "__main__":
     # np.save("data/kolmogorov/RE1000/kolmogorov_train_data.npy", koldata.train_data)
     # np.save("data/kolmogorov/RE1000/kolmogorov_val_data.npy", koldata.val_data)
 
-    # cylinderdata = DatasetCylinder("data/cylinder", normalize=True, train_ratio=0.8, random_seed=42)
-    # print(cylinderdata.mean)
-    # print(cylinderdata.std)
+    cylinderdata = DatasetCylinder("data/cylinder", normalize=False, train_ratio=0.8, random_seed=42)
+    print(cylinderdata.mean)
+    print(cylinderdata.std)
 
-    # print(cylinderdata.train_data.shape)
-    # print(cylinderdata.val_data.shape)
+    print(cylinderdata.train_data.shape)
+    print(cylinderdata.val_data.shape)
 
-    # print(cylinderdata.train_data.min())
-    # print(cylinderdata.train_data.max())
+    print(cylinderdata.train_data.min())
+    print(cylinderdata.train_data.max())
 
-    # print(cylinderdata.val_data.min())
-    # print(cylinderdata.val_data.max())
+    print(cylinderdata.val_data.min())
+    print(cylinderdata.val_data.max())
 
     # de_train_data = denormalize_data(cylinderdata.train_data, cylinderdata.mean, cylinderdata.std)
     # de_val_data = denormalize_data(cylinderdata.val_data, cylinderdata.mean, cylinderdata.std)
@@ -210,25 +232,31 @@ if __name__ == "__main__":
     # print(de_val_data.min())
     # print(de_val_data.max())
 
-    damdata = DatasetDam("data/dam", normalize=False, train_ratio=0.8, random_seed=42)
-    print(damdata.mean)
-    print(damdata.std)
+    # temp_train = cylinderdata.train_data[:, 500:, ...]
+    # temp_val = cylinderdata.val_data[:, 500:, ...]
 
-    print(damdata.train_data.shape)
-    print(damdata.val_data.shape)
+    np.save("data/cylinder/cylinder_train_data.npy", cylinderdata.train_data)
+    np.save("data/cylinder/cylinder_val_data.npy", cylinderdata.val_data)
 
-    print(damdata.train_data.min())
-    print(damdata.train_data.max())
+    # damdata = DatasetDam("data/dam", normalize=False, train_ratio=0.8, random_seed=42)
+    # print(damdata.mean)
+    # print(damdata.std)
 
-    print(damdata.val_data.min())
-    print(damdata.val_data.max())
+    # print(damdata.train_data.shape)
+    # print(damdata.val_data.shape)
 
-    # de_train_data = denormalize_data(damdata.train_data, damdata.mean, damdata.std)
-    # de_val_data = denormalize_data(damdata.val_data, damdata.mean, damdata.std)
-    # print(de_train_data.min())
-    # print(de_train_data.max())
-    # print(de_val_data.min())
-    # print(de_val_data.max())
+    # print(damdata.train_data.min())
+    # print(damdata.train_data.max())
 
-    np.save("data/dam/dam_train_data.npy", damdata.train_data)
-    np.save("data/dam/dam_val_data.npy", damdata.val_data)
+    # print(damdata.val_data.min())
+    # print(damdata.val_data.max())
+
+    # # de_train_data = denormalize_data(damdata.train_data, damdata.mean, damdata.std)
+    # # de_val_data = denormalize_data(damdata.val_data, damdata.mean, damdata.std)
+    # # print(de_train_data.min())
+    # # print(de_train_data.max())
+    # # print(de_val_data.min())
+    # # print(de_val_data.max())
+
+    # np.save("data/dam/dam_train_data.npy", damdata.train_data)
+    # np.save("data/dam/dam_val_data.npy", damdata.val_data)

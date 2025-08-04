@@ -349,6 +349,42 @@ if __name__ == '__main__':
             cpu_mem, gpu_mem = get_memory_usage()
             max_cpu_rollout = max(max_cpu_rollout, cpu_mem)
             max_gpu_rollout = max(max_gpu_rollout, gpu_mem)
+
+    # with torch.no_grad():
+    #     step_start = time.time()
+        
+    #     # 初始编码：将初始状态编码到latent space
+    #     z_current = forward_model.K_S(current_state)
+    #     latent_predictions = [z_current]  # 存储latent space中的预测
+        
+    #     # 在latent space中进行多步传播
+    #     for step in range(n_steps):
+    #         z_next = forward_model.latent_forward(z_current)
+    #         latent_predictions.append(z_next)
+    #         z_current = z_next
+        
+    #     latent_time = time.time() - step_start
+        
+    #     # 统一解码：将所有latent预测解码回原始空间
+    #     decode_start = time.time()
+    #     predictions = []
+    #     for z_pred in latent_predictions[1:]:  # 跳过初始状态
+    #         state_pred = forward_model.K_S_preimage(z_pred)
+    #         predictions.append(state_pred)
+        
+    #     decode_time = time.time() - decode_start
+    #     total_time = time.time() - step_start
+        
+    #     # 内存使用情况监控
+    #     cpu_mem, gpu_mem = get_memory_usage()
+    #     max_cpu_rollout = max(max_cpu_rollout, cpu_mem)
+    #     max_gpu_rollout = max(max_gpu_rollout, gpu_mem)
+        
+    #     # 可选：记录时间信息用于性能分析
+    #     step_times = [latent_time / n_steps] * n_steps  # 平均每步时间
+    #     print(f"Latent propagation time: {latent_time:.4f}s")
+    #     print(f"Decoding time: {decode_time:.4f}s") 
+    #     print(f"Total time: {total_time:.4f}s")
     
     rollout_time = time.time() - start_time
     avg_step_time = sum(step_times) / len(step_times)
@@ -390,6 +426,9 @@ if __name__ == '__main__':
 
     plot_comparisons(raw_data_uv, de_reconstruct_uv, de_onestep_uv, de_rollout_uv,
                     time_indices=[1, 50, 100, 200, 299], save_dir=fig_save_path)
+
+    # plot_comparisons(raw_data_uv, de_reconstruct_uv, de_onestep_uv, de_rollout_uv,
+    #                 time_indices=[1, 5, 10, 15, 20], save_dir=fig_save_path)
     
 
     # Compute Metric

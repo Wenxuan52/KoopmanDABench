@@ -205,9 +205,9 @@ if __name__ == '__main__':
 
     fig_save_path = '../../../../results/CAE_DMD/figures/'
     
-    start_T = 70
+    start_T = 50
     
-    prediction_step = 30
+    prediction_step = 50
     
     foward_step = 12
 
@@ -393,7 +393,7 @@ if __name__ == '__main__':
     save_inference_stats(inference_stats, os.path.join(fig_save_path, 'dam_inference_stats.pkl'))
 
     plot_comparisons(raw_data_uv, de_reconstruct_uv, de_onestep_uv, de_rollout_uv,
-                    time_indices=[1, 5, 10, 20, 29], save_dir=fig_save_path)
+                    time_indices=[1, 10, 20, 30, 40], save_dir=fig_save_path)
     
 
     # Compute Metric

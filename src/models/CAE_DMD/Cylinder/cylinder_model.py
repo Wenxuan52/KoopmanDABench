@@ -10,7 +10,7 @@ from base import *
 CYLINDER_settings = {"obs_dim": [2, 64, 64], 
                     "history_len": 10, 
                     "state_dim": [2, 64, 64], 
-                    "seq_length": 12,
+                    "seq_length": 20,
                     "obs_feature_dim": [512, 128, 64, 32, 16, 8], 
                     "state_filter_feature_dim": [16, 32, 64, 128, 256]}
 
