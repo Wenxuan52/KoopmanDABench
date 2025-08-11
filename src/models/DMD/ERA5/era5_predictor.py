@@ -16,6 +16,7 @@ src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", ".."
 sys.path.append(src_directory)
 
 from src.utils.Dataset import ERA5Dataset
+from src.models.DMD.base import TorchDMD
 
 def get_memory_usage():
     """Get current memory usage for CPU and GPU"""
@@ -31,7 +32,6 @@ def save_inference_stats(stats_dict, save_path):
     with open(save_path, 'wb') as f:
         pickle.dump(stats_dict, f)
     print(f"[INFO] Inference statistics saved to: {save_path}")
-
 
 def plot_era5_comparisons(raw_data, rollout, time_indices=[1, 4, 7, 10], save_dir="figures"):
     """
@@ -78,10 +78,10 @@ def plot_era5_comparisons(raw_data, rollout, time_indices=[1, 4, 7, 10], save_di
                 ax_gt.set_ylabel(f'GT\n{channel_names[ch_idx]}', rotation=0, labelpad=50, ha='right', va='center', fontsize=10)
                 ax_pred.set_ylabel(f'Pred\n{channel_names[ch_idx]}', rotation=0, labelpad=50, ha='right', va='center', fontsize=10)
 
-    fig1.suptitle("ERA5 Rollout Prediction Comparison", fontsize=18)
+    fig1.suptitle("ERA5 DMD Rollout Prediction Comparison", fontsize=18)
     plt.tight_layout()
     plt.subplots_adjust(top=0.96, left=0.08)
-    fig1.savefig(os.path.join(save_dir, "era5_rollout_comparison.png"), dpi=150, bbox_inches='tight')
+    fig1.savefig(os.path.join(save_dir, "era5_dmd_rollout_comparison.png"), dpi=150, bbox_inches='tight')
     plt.close(fig1)
 
     # Second figure: Error comparison (10 rows x time_steps columns)
@@ -125,14 +125,14 @@ def plot_era5_comparisons(raw_data, rollout, time_indices=[1, 4, 7, 10], save_di
                 ax_gt.set_ylabel(f'GT\n{channel_names[ch_idx]}', rotation=0, labelpad=50, ha='right', va='center', fontsize=10)
                 ax_err.set_ylabel(f'Error\n{channel_names[ch_idx]}', rotation=0, labelpad=50, ha='right', va='center', fontsize=10)
 
-    fig2.suptitle("ERA5 Rollout Error Comparison", fontsize=18)
+    fig2.suptitle("ERA5 DMD Rollout Error Comparison", fontsize=18)
     plt.tight_layout()
     plt.subplots_adjust(top=0.96, left=0.08)
-    fig2.savefig(os.path.join(save_dir, "era5_rollout_error.png"), dpi=150, bbox_inches='tight')
+    fig2.savefig(os.path.join(save_dir, "era5_dmd_rollout_error.png"), dpi=150, bbox_inches='tight')
     plt.close(fig2)
 
 
-def compute_era5_metrics(groundtruth, rollout):
+def compute_era5_metrics(groundtruth, onestep, rollout):
     """Compute metrics for ERA5 data - both overall and per-channel"""
     channel_names = ['Geopotential', 'Temperature', 'Humidity', 'Wind_u', 'Wind_v']
     
@@ -208,17 +208,20 @@ def compute_era5_metrics(groundtruth, rollout):
         
         return overall_metrics, per_channel_metrics
     
-    overall_metrics, per_channel_metrics = calculate_metrics(rollout, groundtruth)
+    onestep_overall, onestep_per_channel = calculate_metrics(onestep, groundtruth)
+    rollout_overall, rollout_per_channel = calculate_metrics(rollout, groundtruth)
     
     results = {
-        'rollout_overall': overall_metrics,
-        'rollout_per_channel': per_channel_metrics
+        'onestep_overall': onestep_overall,
+        'onestep_per_channel': onestep_per_channel,
+        'rollout_overall': rollout_overall,
+        'rollout_per_channel': rollout_per_channel
     }
     
     return results
 
 
-def compute_era5_temporal_metrics(groundtruth, rollout):
+def compute_era5_temporal_metrics(groundtruth, onestep, rollout):
     """Compute temporal metrics for ERA5 data - both overall and per-channel"""
     channel_names = ['Geopotential', 'Temperature', 'Humidity', 'Wind_u', 'Wind_v']
     
@@ -309,37 +312,55 @@ def compute_era5_temporal_metrics(groundtruth, rollout):
         
         return overall_temporal, per_channel_temporal
     
-    overall_temporal, per_channel_temporal = calculate_temporal_metrics(rollout, groundtruth)
+    onestep_overall, onestep_per_channel = calculate_temporal_metrics(onestep, groundtruth)
+    rollout_overall, rollout_per_channel = calculate_temporal_metrics(rollout, groundtruth)
     
     results = {
-        'rollout_overall': overall_temporal,
-        'rollout_per_channel': per_channel_temporal
+        'onestep_overall': onestep_overall,
+        'onestep_per_channel': onestep_per_channel,
+        'rollout_overall': rollout_overall,
+        'rollout_per_channel': rollout_per_channel
     }
     
     return results
 
 
-if __name__ == '__main__':
-    from era5_model_FTF import ERA5_C_FORWARD  # You need to import your ERA5 model
+# Define encoder, decoder, and latent_forward functions
+def encoder(x_t, dmd):
+    x_t_complex = x_t.to(torch.complex64)
+    b_t = torch.linalg.lstsq(dmd.modes, x_t_complex).solution
+    return b_t
 
-    fig_save_path = '../../../../results/CAE_DMD/figures/'
+def decoder(b_t, dmd):
+    x_t = dmd.modes @ b_t
+    return x_t.real
+
+def latent_forward(b_t, dmd):
+    b_tp = torch.diag(dmd.eigenvalues) @ b_t
+    return b_tp
+
+
+if __name__ == '__main__':
+    # Configuration
+    fig_save_path = '../../../../results/DMD/figures/'
+    os.makedirs(fig_save_path, exist_ok=True)
     
     start_T = 1000
     prediction_step = 100
-    forward_step = 12
+    
+    # Device setup
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print(f"[INFO] Using device: {device}")
 
     # Load ERA5 datasets
     print("Loading ERA5 datasets...")
     
     era5_test_dataset = ERA5Dataset(
         data_path="../../../../data/ERA5/ERA5_data/test_seq_state.h5",
-        seq_length=forward_step,
+        seq_length=12,  # Not used for DMD but required by dataset
         min_path="../../../../data/ERA5/ERA5_data/min_val.npy",
         max_path="../../../../data/ERA5/ERA5_data/max_val.npy"
     )
-
-    # Get denormalizer function
-    denorm = era5_test_dataset.denormalizer()
     
     # Get ground truth data
     raw_test_data = era5_test_dataset.data  # shape: [N, H, W, C]
@@ -349,33 +370,69 @@ if __name__ == '__main__':
     print(f"Ground truth shape: {groundtruth.shape}")
     print(f"Ground truth range: [{groundtruth.min():.4f}, {groundtruth.max():.4f}]")
     
-    # Normalize ground truth using dataset's normalize function
+    # Normalize ground truth
     normalize_groundtruth = era5_test_dataset.normalize(groundtruth)
     print(f"Normalized ground truth range: [{normalize_groundtruth.min():.4f}, {normalize_groundtruth.max():.4f}]")
     
-    # Load model
-    forward_model = ERA5_C_FORWARD()
-    forward_model.load_state_dict(torch.load('../../../../results/CAE_DMD/ERA5/model_weights_FTF/forward_model.pt', 
-                                            weights_only=True, map_location='cpu'))
-    forward_model.C_forward = torch.load('../../../../results/CAE_DMD/ERA5/model_weights_FTF/C_forward.pt', 
-                                       weights_only=True, map_location='cpu')
-    forward_model.eval()
-
-    print(f"C_forward norm: {torch.norm(forward_model.C_forward)}")
-    print(forward_model)
-
+    # Load DMD model
+    print("Loading DMD model...")
+    dmd = TorchDMD(svd_rank=512, device=device)
+    dmd.load_dmd('../../../../results/DMD/ERA5/dmd_model.pth')
+    
+    # Prepare data for DMD: flatten spatial dimensions
+    # Input: (30, 5, 64, 32) -> Need to flatten each timestep: (30, 5*64*32) -> (30, 10240)
+    # Then transpose for DMD format: (10240, 30)
+    T, C, H, W = normalize_groundtruth.shape
+    D = C * H * W  # 5 * 64 * 32 = 10240
+    
+    # Flatten spatial+channel dimensions: (T, C, H, W) -> (T, C*H*W)
+    state_flat = normalize_groundtruth.reshape(T, D).T.to(device)  # [D, T] = [10240, 30]
+    
+    print(f"Flattened state shape: {state_flat.shape}")
+    
     inference_stats = {}
 
     # Warm up
     with torch.no_grad():
-        z = forward_model.K_S(normalize_groundtruth[:1])
-        _ = forward_model.K_S_preimage(z)
+        _ = dmd.predict(state_flat[:, 0:1])
     
-    print("\n=== ERA5 Rollout Inference ===")
-    predictions = []
-    current_state = normalize_groundtruth[0, ...].unsqueeze(0)  # (1, 5, 64, 32)
-    n_steps = prediction_step
+    print("\n=== ERA5 DMD One-step Inference ===")
+    
+    start_time = time.time()
+    start_cpu, start_gpu = get_memory_usage()
+    max_cpu_onestep = start_cpu
+    max_gpu_onestep = start_gpu
+    
+    with torch.no_grad():
+        onestep_states = []
+        # First timestep is the same as groundtruth
+        onestep_states.append(state_flat[:, 0:1])
+        
+        # Predict each subsequent timestep from the previous groundtruth
+        for t in range(prediction_step - 1):
+            x_t = state_flat[:, t:t+1]  # [D, 1]
+            x_next = dmd.predict(x_t)   # [D, 1]
+            onestep_states.append(x_next)
+            
+            cpu_mem, gpu_mem = get_memory_usage()
+            max_cpu_onestep = max(max_cpu_onestep, cpu_mem)
+            max_gpu_onestep = max(max_gpu_onestep, gpu_mem)
+        
+        onestep_flat = torch.cat(onestep_states, dim=1)  # [D, T]
+    
+    onestep_time = time.time() - start_time
+    print(f"One-step total time: {onestep_time:.4f}s")
+    print(f"Memory usage - CPU: {max_cpu_onestep:.2f}GB, GPU: {max_gpu_onestep:.2f}GB")
+    
+    inference_stats['onestep'] = {
+        'total_time': onestep_time,
+        'avg_time_per_step': onestep_time / (prediction_step - 1),
+        'max_cpu_memory': max_cpu_onestep,
+        'max_gpu_memory': max_gpu_onestep
+    }
 
+    print("\n=== ERA5 DMD Rollout Inference ===")
+    
     start_time = time.time()
     start_cpu, start_gpu = get_memory_usage()
     max_cpu_rollout = start_cpu
@@ -383,47 +440,33 @@ if __name__ == '__main__':
 
     step_times = []
 
-    # with torch.no_grad():
-    #     for step in range(n_steps):
-    #         step_start = time.time()
-            
-    #         gt_state = normalize_groundtruth[step:step+1]
-    #         z_current = forward_model.K_S(gt_state)
-    #         reconstructed_state = forward_model.K_S_preimage(z_current)
-            
-    #         predictions.append(reconstructed_state)
-    
-    # with torch.no_grad():
-    #     for step in range(n_steps):
-    #         step_start = time.time()
-            
-    #         gt_current = normalize_groundtruth[step:step+1]
-    #         z_current = forward_model.K_S(gt_current)
-    #         z_next = forward_model.latent_forward(z_current)
-    #         next_state = forward_model.K_S_preimage(z_next)
-            
-    #         predictions.append(next_state)
-    
     with torch.no_grad():
-        for step in range(n_steps):
+        # 1. Encode initial physical state to latent space
+        b_0 = encoder(state_flat[:, 0], dmd)  # shape: [modes]
+
+        # 2. Propagate in latent space
+        latent_states = [b_0.unsqueeze(1)]  # shape: [modes, 1]
+        for t in range(1, prediction_step):
             step_start = time.time()
-
-            z_current = forward_model.K_S(current_state)
-            z_next = forward_model.latent_forward(z_current)
-            next_state = forward_model.K_S_preimage(z_next)
             
-            predictions.append(next_state)
-            current_state = next_state
-
+            b_next = latent_forward(latent_states[-1][:, 0], dmd)  # next latent state
+            latent_states.append(b_next.unsqueeze(1))
+            
             step_time = time.time() - step_start
             step_times.append(step_time)
             
             cpu_mem, gpu_mem = get_memory_usage()
             max_cpu_rollout = max(max_cpu_rollout, cpu_mem)
             max_gpu_rollout = max(max_gpu_rollout, gpu_mem)
+
+        # 3. Stack all latent states
+        latent_states_all = torch.cat(latent_states, dim=1)  # shape: [modes, T]
+
+        # 4. Decode all at once to physical space
+        rollout_flat = decoder(latent_states_all, dmd)  # shape: [D, T]
     
     rollout_time = time.time() - start_time
-    avg_step_time = sum(step_times) / len(step_times)
+    avg_step_time = sum(step_times) / len(step_times) if step_times else 0
     
     print(f"Rollout total time: {rollout_time:.4f}s")
     print(f"Average time per step: {avg_step_time:.4f}s")
@@ -437,42 +480,54 @@ if __name__ == '__main__':
         'step_times': step_times
     }
 
-    rollout = torch.cat(predictions, dim=0)  # (30, 5, 64, 32)
-    rollout = torch.cat([normalize_groundtruth[0:1, ...], rollout[:-1, ...]])  # Replace first timestep with ground truth
-
-    print(f"Rollout shape: {rollout.shape}")
+    # Reshape predictions back to spatial format
+    # onestep_flat and rollout_flat are [D, T] = [10240, 30]
+    # Need to transpose and reshape: [D, T] -> [T, D] -> [T, C, H, W]
+    onestep_pred = onestep_flat.T.reshape(T, C, H, W)    # [30, 5, 64, 32]
+    rollout_pred = rollout_flat.T.reshape(T, C, H, W)    # [30, 5, 64, 32]
+    
+    print(f"One-step prediction shape: {onestep_pred.shape}")
+    print(f"Rollout prediction shape: {rollout_pred.shape}")
 
     # Denormalize for visualization and metrics
-    de_rollout = denorm(rollout)
+    denorm = era5_test_dataset.denormalizer()
+    de_onestep = denorm(onestep_pred)
+    de_rollout = denorm(rollout_pred)
+    de_groundtruth = denorm(normalize_groundtruth)
+    
+    print(f"Denormalized onestep range: [{de_onestep.min():.4f}, {de_onestep.max():.4f}]")
     print(f"Denormalized rollout range: [{de_rollout.min():.4f}, {de_rollout.max():.4f}]")
+    print(f"Denormalized groundtruth range: [{de_groundtruth.min():.4f}, {de_groundtruth.max():.4f}]")
 
-    # Save results
-    np.save(os.path.join(fig_save_path, 'era5_rollout.npy'), de_rollout.numpy())
+    # Save results - keep original format for rollout
+    np.save(os.path.join(fig_save_path, 'era5_dmd_rollout.npy'), de_rollout.detach().cpu().numpy())
 
     inference_stats['config'] = {
         'prediction_step': prediction_step,
-        'forward_step': forward_step,
-        'start_T': start_T
+        'start_T': start_T,
+        'device': str(device)
     }
     
-    save_inference_stats(inference_stats, os.path.join(fig_save_path, 'era5_inference_stats.pkl'))
+    save_inference_stats(inference_stats, os.path.join(fig_save_path, 'era5_dmd_inference_stats.pkl'))
 
     # Plot comparisons
-    plot_era5_comparisons(groundtruth, de_rollout,
+    plot_era5_comparisons(de_groundtruth, de_rollout,
                          time_indices=[1, 20, 50, 80, 99], save_dir=fig_save_path)
     
     # Compute metrics - now includes both overall and per-channel metrics
-    overall_metrics = compute_era5_metrics(groundtruth, de_rollout)
+    overall_metrics = compute_era5_metrics(de_groundtruth, de_onestep, de_rollout)
     
     print("\nOverall metrics:")
     for method, metrics in overall_metrics.items():
-        if method == 'rollout_overall':
-            print(f"Rollout (Overall):")
+        if method.endswith('_overall'):
+            method_name = method.replace('_overall', '').title()
+            print(f"{method_name} (Overall):")
             for metric_name, value in metrics.items():
                 print(f"  {metric_name}: {value:.6f}")
             print()
-        elif method == 'rollout_per_channel':
-            print("Rollout (Per Channel):")
+        elif method.endswith('_per_channel'):
+            method_name = method.replace('_per_channel', '').title()
+            print(f"{method_name} (Per Channel):")
             for channel, channel_metrics in metrics.items():
                 print(f"  {channel}:")
                 for metric_name, value in channel_metrics.items():
@@ -480,7 +535,7 @@ if __name__ == '__main__':
             print()
     
     # Compute and plot temporal metrics - now includes both overall and per-channel
-    temporal_metrics = compute_era5_temporal_metrics(groundtruth, de_rollout)
+    temporal_metrics = compute_era5_temporal_metrics(de_groundtruth, de_onestep, de_rollout)
     
     # Plot overall temporal metrics
     fig, axes = plt.subplots(1, 5, figsize=(25, 5))
@@ -488,8 +543,11 @@ if __name__ == '__main__':
     
     for i, metric_name in enumerate(metrics_names):
         ax = axes[i]
-        values = temporal_metrics['rollout_overall'][metric_name]
-        ax.plot(values, label='rollout', marker='o', markersize=3)
+        onestep_values = temporal_metrics['onestep_overall'][metric_name]
+        rollout_values = temporal_metrics['rollout_overall'][metric_name]
+        
+        ax.plot(onestep_values, label='One-step', marker='o', markersize=3)
+        ax.plot(rollout_values, label='Rollout', marker='s', markersize=3)
         
         ax.set_xlabel('Time Step')
         ax.set_ylabel(metric_name)
@@ -498,40 +556,93 @@ if __name__ == '__main__':
         ax.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig(os.path.join(fig_save_path, "era5_perframe_metric_overall.png"), dpi=150, bbox_inches='tight')
+    plt.savefig(os.path.join(fig_save_path, "era5_dmd_perframe_metric_overall.png"), dpi=150, bbox_inches='tight')
     plt.close()
     
-    # Plot per-channel temporal metrics
+    # Plot per-channel temporal metrics for onestep
     channel_names = ['Geopotential', 'Temperature', 'Humidity', 'Wind_u', 'Wind_v']
     colors = ['blue', 'red', 'green', 'orange', 'purple']
     
     for metric_name in metrics_names:
+        # Onestep per-channel plot
         fig, ax = plt.subplots(1, 1, figsize=(12, 6))
         
         for ch_idx, (channel, color) in enumerate(zip(channel_names, colors)):
-            values = temporal_metrics['rollout_per_channel'][channel][metric_name]
+            values = temporal_metrics['onestep_per_channel'][channel][metric_name]
             ax.plot(values, label=channel, marker='o', markersize=2, color=color)
         
         ax.set_xlabel('Time Step')
         ax.set_ylabel(metric_name)
-        ax.set_title(f'{metric_name} over Time (Per Channel)')
+        ax.set_title(f'{metric_name} over Time (One-step Per Channel)')
         ax.legend()
         ax.grid(True, alpha=0.3)
         
         plt.tight_layout()
-        plt.savefig(os.path.join(fig_save_path, f"era5_perframe_{metric_name.lower()}_per_channel.png"), 
+        plt.savefig(os.path.join(fig_save_path, f"era5_dmd_onestep_{metric_name.lower()}_per_channel.png"), 
+                   dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        # Rollout per-channel plot
+        fig, ax = plt.subplots(1, 1, figsize=(12, 6))
+        
+        for ch_idx, (channel, color) in enumerate(zip(channel_names, colors)):
+            values = temporal_metrics['rollout_per_channel'][channel][metric_name]
+            ax.plot(values, label=channel, marker='s', markersize=2, color=color)
+        
+        ax.set_xlabel('Time Step')
+        ax.set_ylabel(metric_name)
+        ax.set_title(f'{metric_name} over Time (Rollout Per Channel)')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(fig_save_path, f"era5_dmd_rollout_{metric_name.lower()}_per_channel.png"), 
+                   dpi=150, bbox_inches='tight')
+        plt.close()
+    
+    # Plot comparison between onestep and rollout for each channel
+    for metric_name in metrics_names:
+        fig, axes = plt.subplots(1, 5, figsize=(25, 5))
+        
+        for ch_idx, channel in enumerate(channel_names):
+            ax = axes[ch_idx]
+            onestep_values = temporal_metrics['onestep_per_channel'][channel][metric_name]
+            rollout_values = temporal_metrics['rollout_per_channel'][channel][metric_name]
+            
+            ax.plot(onestep_values, label='One-step', marker='o', markersize=2)
+            ax.plot(rollout_values, label='Rollout', marker='s', markersize=2)
+            
+            ax.set_xlabel('Time Step')
+            ax.set_ylabel(metric_name)
+            ax.set_title(f'{channel}')
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+        
+        fig.suptitle(f'{metric_name} Comparison: One-step vs Rollout (Per Channel)', fontsize=16)
+        plt.tight_layout()
+        plt.savefig(os.path.join(fig_save_path, f"era5_dmd_{metric_name.lower()}_comparison_per_channel.png"), 
                    dpi=150, bbox_inches='tight')
         plt.close()
     
     print(f"\nResults saved to: {fig_save_path}")
     print("Files generated:")
-    print("- era5_rollout_comparison.png")
-    print("- era5_rollout_error.png")
-    print("- era5_perframe_metric_overall.png")
-    print("- era5_perframe_mse_per_channel.png")
-    print("- era5_perframe_mae_per_channel.png")
-    print("- era5_perframe_relative_l2_per_channel.png")
-    print("- era5_perframe_rrmse_per_channel.png")
-    print("- era5_perframe_ssim_per_channel.png")
-    print("- era5_rollout.npy")
-    print("- era5_inference_stats.pkl")
+    print("- era5_dmd_rollout_comparison.png")
+    print("- era5_dmd_rollout_error.png")
+    print("- era5_dmd_perframe_metric_overall.png")
+    print("- era5_dmd_onestep_mse_per_channel.png")
+    print("- era5_dmd_onestep_mae_per_channel.png")
+    print("- era5_dmd_onestep_relative_l2_per_channel.png")
+    print("- era5_dmd_onestep_rrmse_per_channel.png")
+    print("- era5_dmd_onestep_ssim_per_channel.png")
+    print("- era5_dmd_rollout_mse_per_channel.png")
+    print("- era5_dmd_rollout_mae_per_channel.png")
+    print("- era5_dmd_rollout_relative_l2_per_channel.png")
+    print("- era5_dmd_rollout_rrmse_per_channel.png")
+    print("- era5_dmd_rollout_ssim_per_channel.png")
+    print("- era5_dmd_mse_comparison_per_channel.png")
+    print("- era5_dmd_mae_comparison_per_channel.png")
+    print("- era5_dmd_relative_l2_comparison_per_channel.png")
+    print("- era5_dmd_rrmse_comparison_per_channel.png")
+    print("- era5_dmd_ssim_comparison_per_channel.png")
+    print("- era5_dmd_rollout.npy")
+    print("- era5_dmd_inference_stats.pkl")

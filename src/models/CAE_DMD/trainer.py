@@ -160,7 +160,7 @@ def train_jointly_forward_model(forward_model,
             clip_grad_norm_(forward_model.parameters(), gradclip)
             optimizer.step()
             
-            C_fwd += tmp_C_fwd*(B/num_samples)
+            C_fwd += tmp_C_fwd.detach()*(B/num_samples)
             epoch_train_fwd.append(loss_fwd.item())
             epoch_train_id.append(loss_id.item())
             epoch_train_total.append(loss.item())
@@ -170,7 +170,7 @@ def train_jointly_forward_model(forward_model,
             max_cpu_memory = max(max_cpu_memory, cpu_mem)
             max_gpu_memory = max(max_gpu_memory, gpu_mem)
         
-        U, S, Vh = torch.linalg.svd(C_fwd)
+        U, S, Vh = torch.linalg.svd(C_fwd.detach())
         print(S.max())
         
         # Calculate average training losses
@@ -281,7 +281,7 @@ def train_ms_forward_model(forward_model,
                            device: str = 'cpu',
                            weight_matrix=None,
                            patience: int = 50,
-                           multi_step: int = 3):
+                           multi_step: int = 5):
     
     print(f"[INFO] Training multi-step forward model for {num_epochs} epochs")
     if not os.path.exists(model_save_folder):

@@ -2,7 +2,7 @@
 # coding: utf-8
 
 """
-Data Assimilation for DMD cylinder model
+Data Assimilation for DMD Dam model
 """
 
 import random
@@ -29,8 +29,8 @@ current_directory = os.getcwd()
 src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", "..", ".."))
 sys.path.append(src_directory)
 
-from cylinder_model import CYLINDER_C_FORWARD
-from src.utils.Dataset import CylinderDynamicsDataset
+from dam_model import DAM_C_FORWARD
+from src.utils.Dataset import DamDynamicsDataset
 import torchda
 
 
@@ -207,33 +207,27 @@ def run_data_assimilation(
     print(f"Using device: {device}")
     
     # Load forward model
-    forward_model = CYLINDER_C_FORWARD().to(device)
-    forward_model.load_state_dict(torch.load(f'../../../../results/{model_name}/Cylinder/cyl_model_weights/forward_model.pt', 
+    forward_model = DAM_C_FORWARD().to(device)
+    forward_model.load_state_dict(torch.load(f'../../../../results/{model_name}/Dam/model_weights/forward_model.pt', 
                                             weights_only=True, map_location=device))
-    forward_model.C_forward = torch.load(f'../../../../results/{model_name}/Cylinder/cyl_model_weights/C_forward.pt', 
-                                       weights_only=True, map_location=device).to(device)
     forward_model.eval()
     print("Forward model loaded")
     
     # Load datasets
     forward_step = 12
-    val_idx = 3
+    val_idx = -1
     
-    cyl_train_dataset = CylinderDynamicsDataset(
-        data_path="../../../../data/cylinder/cylinder_train_data.npy",
-        seq_length=forward_step,
-        mean=None,
-        std=None
-    )
+    dam_train_dataset = DamDynamicsDataset(data_path="../../../../data/dam/dam_train_data.npy",
+                seq_length = forward_step,
+                mean=None,
+                std=None)
     
-    cyl_val_dataset = CylinderDynamicsDataset(
-        data_path="../../../../data/cylinder/cylinder_val_data.npy",
-        seq_length=forward_step,
-        mean=cyl_train_dataset.mean,
-        std=cyl_train_dataset.std
-    )
+    dam_val_dataset = DamDynamicsDataset(data_path="../../../../data/dam/dam_val_data.npy",
+                seq_length = forward_step,
+                mean=dam_train_dataset.mean,
+                std=dam_train_dataset.std)
     
-    denorm = cyl_val_dataset.denormalizer()
+    denorm = dam_val_dataset.denormalizer()
     
     # Create a device-aware denormalizer
     def safe_denorm(x):
@@ -241,14 +235,14 @@ def run_data_assimilation(
         if isinstance(x, torch.Tensor):
             # Ensure x is on CPU for denormalization
             x_cpu = x.cpu() if x.is_cuda else x
-            mean = cyl_val_dataset.mean.reshape(1, -1, 1, 1)
-            std = cyl_val_dataset.std.reshape(1, -1, 1, 1)
+            mean = dam_val_dataset.mean.reshape(1, -1, 1, 1)
+            std = dam_val_dataset.std.reshape(1, -1, 1, 1)
             return (x_cpu * std + mean).cpu()
         else:
             return denorm(x)
     
     # Get ground truth data
-    groundtruth = cyl_val_dataset.data[val_idx, ...]
+    groundtruth = dam_val_dataset.data[val_idx, ...]
     groundtruth = torch.from_numpy(groundtruth)
     print(f"Ground truth shape: {groundtruth.shape}")
     
@@ -262,7 +256,7 @@ def run_data_assimilation(
     
     # Prepare observation data
     full_y_data = [
-        cyl_val_dataset.normalize(groundtruth[i+1, ...])
+        dam_val_dataset.normalize(groundtruth[i+1, ...])
         for i in range(groundtruth.shape[0])
         if i in time_obs
     ]
@@ -281,7 +275,7 @@ def run_data_assimilation(
     print(f"Sparse observation shape: {sparse_y_data.shape}")
     
     # Set up DA matrices
-    latent_dim = forward_model.C_forward.shape[0]
+    latent_dim = int(forward_model.hidden_dim)
     B = torch.eye(latent_dim, device=device)
     R = obs_handler.create_block_R_matrix(base_variance=1e-3).to(device)
     
@@ -299,7 +293,7 @@ def run_data_assimilation(
         .set_observation_covariance_matrix(R)
         .set_observations(sparse_y_data)
         .set_optimizer_cls(torch.optim.Adam)
-        .set_optimizer_args({"lr": 0.05})
+        .set_optimizer_args({"lr": 0.001})
         .set_max_iterations(5000)
         .set_early_stop(early_stop_config)
         .set_algorithm(torchda.Algorithms.Var4D)
@@ -312,7 +306,7 @@ def run_data_assimilation(
     outs_4d_da = []
     start_time = perf_counter()
     
-    current_state = cyl_val_dataset.normalize(groundtruth[start_da_end_idxs[0]]).to(device)
+    current_state = dam_val_dataset.normalize(groundtruth[start_da_end_idxs[0]]).to(device)
     
     for i in range(start_da_end_idxs[0], start_da_end_idxs[-1] + 1):
         print(f"Processing step {i}")
@@ -323,7 +317,6 @@ def run_data_assimilation(
             update_observation_time_index(0)
             
             case_to_run.set_background_state(z_current.ravel())
-            
             da_start_time = perf_counter()
             result = case_to_run.execute()
             da_time = perf_counter() - da_start_time
@@ -333,7 +326,6 @@ def run_data_assimilation(
             final_cost = intermediate_results["J"][-1]
             num_iterations = len(intermediate_results['J'])
             avg_time_per_iteration = da_time / num_iterations
-
             print(f"Final cost function: {final_cost}")
             print(f"Number of iterations: {num_iterations}")
             print(f"Average time per iteration: {avg_time_per_iteration:.6f}s")
@@ -355,7 +347,7 @@ def run_data_assimilation(
     start_time = perf_counter()
     
     with torch.no_grad():
-        current_state = cyl_val_dataset.normalize(groundtruth[start_da_end_idxs[0]]).to(device)
+        current_state = dam_val_dataset.normalize(groundtruth[start_da_end_idxs[0]]).to(device)
         
         for i in range(start_da_end_idxs[0], start_da_end_idxs[-1] + 1):
             print(f"Step {i}")
@@ -387,7 +379,7 @@ def run_data_assimilation(
             de_da_img = safe_denorm(da_img)
             de_noda_img = safe_denorm(noda_img)
 
-            if i == 800:
+            if i == start_da_end_idxs[1]:
                 da_minus_real_img_square = (de_da_img[0] - groundtruth[i+1]) ** 2
                 noda_minus_real_img_square = (de_noda_img[0] - groundtruth[i]) ** 2
             else:
@@ -397,7 +389,7 @@ def run_data_assimilation(
             diffs_da_real_mse.append(da_minus_real_img_square.mean().item())
             diffs_noda_real_mse.append(noda_minus_real_img_square.mean().item())
 
-            if i == 800:
+            if i == start_da_end_idxs[1]:
                 diffs_da_real_rrmse.append((da_minus_real_img_square.sum()/((groundtruth[i+1]**2).sum())).sqrt().item())
                 diffs_noda_real_rrmse.append((noda_minus_real_img_square.sum()/((groundtruth[i]**2).sum())).sqrt().item())
                 
@@ -412,20 +404,20 @@ def run_data_assimilation(
                 diffs_da_real_ssim.append(ssim(groundtruth[i].numpy(), de_da_img[0].numpy(), data_range=1, channel_axis=0))
                 diffs_noda_real_ssim.append(ssim(groundtruth[i].numpy(), de_noda_img[0].numpy(), data_range=1, channel_axis=0))
 
-    print(diffs_da_real_mse[100])
-    print(diffs_noda_real_mse[100])
-    print(diffs_da_real_ssim[100])
-    print(diffs_noda_real_ssim[100])
+    # print(diffs_da_real_mse[100])
+    # print(diffs_noda_real_mse[100])
+    # print(diffs_da_real_ssim[100])
+    # print(diffs_noda_real_ssim[100])
 
-    print(diffs_da_real_mse[101])
-    print(diffs_noda_real_mse[101])
-    print(diffs_da_real_ssim[101])
-    print(diffs_noda_real_ssim[101])
+    # print(diffs_da_real_mse[101])
+    # print(diffs_noda_real_mse[101])
+    # print(diffs_da_real_ssim[101])
+    # print(diffs_noda_real_ssim[101])
 
-    print(diffs_da_real_mse[102])
-    print(diffs_noda_real_mse[102])
-    print(diffs_da_real_ssim[102])
-    print(diffs_noda_real_ssim[102])
+    # print(diffs_da_real_mse[102])
+    # print(diffs_noda_real_mse[102])
+    # print(diffs_da_real_ssim[102])
+    # print(diffs_noda_real_ssim[102])
     
     # Save results with model-specific path
     results_data = {
@@ -437,7 +429,7 @@ def run_data_assimilation(
         'diffs_noda_real_ssim': diffs_noda_real_ssim
     }
     
-    results_path = f'../../../../results/{model_name}/DA/cyl_comp_data.pkl'
+    results_path = f'../../../../results/{model_name}/DA/dam_comp_data.pkl'
     os.makedirs(os.path.dirname(results_path), exist_ok=True)
     with open(results_path, 'wb') as f:
         pickle.dump(results_data, f)
@@ -450,7 +442,7 @@ def run_data_assimilation(
                 start_da_end_idxs, time_obs, model_name)
     
     # Generate comparison figure
-    da_idxs = [100, 110, 120]
+    da_idxs = [10, 20, 30]
     generate_comparison_figure(groundtruth, outs_4d_da, outs_no_4d_da, 
                              da_idxs, time_obs, forward_model, safe_denorm,
                              model_name, model_display_name, 
@@ -488,7 +480,7 @@ def plot_metrics(diffs_da_real_mse, diffs_noda_real_mse,
     plt.tight_layout()
     
     # Save with model-specific path
-    metrics_path = f'../../../../results/{model_name}/DA/cyl_metrics_comparison.png'
+    metrics_path = f'../../../../results/{model_name}/DA/dam_metrics_comparison.png'
     os.makedirs(os.path.dirname(metrics_path), exist_ok=True)
     plt.savefig(metrics_path, dpi=300)
     plt.close()
@@ -557,7 +549,7 @@ def generate_comparison_figure(groundtruth, outs_4d_da, outs_no_4d_da,
                             groundtruth[time_obs[i], 1, ...] ** 2) ** 0.5
             
             # Plot ground truth
-            im1 = ax[0, i].imshow(img_tensor.reshape(64, 64), cmap="viridis", aspect='equal')
+            im1 = ax[0, i].imshow(img_tensor.reshape(64, 64), cmap="viridis", aspect='equal', origin='lower')
             
             # Get reconstructions
             no_da = forward_model.K_S_preimage(outs_no_4d_da[da_idx]).cpu()
@@ -570,8 +562,8 @@ def generate_comparison_figure(groundtruth, outs_4d_da, outs_no_4d_da,
             image_da = (de_da[0, 0, ...] ** 2 + de_da[0, 1, ...] ** 2) ** 0.5
             
             # Plot reconstructions
-            ax[1, i].imshow(image_noda.reshape(64, 64), cmap="viridis", aspect='equal')
-            ax[2, i].imshow(image_da.reshape(64, 64), cmap="viridis", aspect='equal')
+            ax[1, i].imshow(image_noda.reshape(64, 64), cmap="viridis", aspect='equal', origin='lower')
+            ax[2, i].imshow(image_da.reshape(64, 64), cmap="viridis", aspect='equal', origin='lower')
             
             # Calculate and plot residuals with provided vmin/vmax
             res_no_da = (img_tensor.reshape(64, 64) - image_noda.reshape(64, 64)).abs()
@@ -581,9 +573,9 @@ def generate_comparison_figure(groundtruth, outs_4d_da, outs_no_4d_da,
             res_da = torch.where(res_da > threshold, res_da, 0)
             
             im2 = ax[3, i].imshow(res_no_da, cmap="magma", aspect='equal', 
-                                vmin=residual_vmin, vmax=residual_vmax)
+                                vmin=residual_vmin, vmax=residual_vmax, origin='lower')
             ax[4, i].imshow(res_da, cmap="magma", aspect='equal', 
-                          vmin=residual_vmin, vmax=residual_vmax)
+                          vmin=residual_vmin, vmax=residual_vmax, origin='lower')
     
     # Add titles
     for i in range(n_times):
@@ -607,7 +599,7 @@ def generate_comparison_figure(groundtruth, outs_4d_da, outs_no_4d_da,
     cbar2.set_label('|Residual|', rotation=270, labelpad=15, fontsize=9)
     
     # Save figure with model-specific path and filename
-    save_filename = f"../../../../results/{model_name}/DA/cyl_{model_name}.png"
+    save_filename = f"../../../../results/{model_name}/DA/dam_{model_name}.png"
     os.makedirs(os.path.dirname(save_filename), exist_ok=True)
     plt.savefig(save_filename, dpi=dpi, bbox_inches='tight', pad_inches=0.05)
     print(f"Comparison figure saved to: {save_filename}")
@@ -621,12 +613,12 @@ if __name__ == "__main__":
     run_data_assimilation(
         max_obs_ratio=0.055,
         min_obs_ratio=0.045,
-        start_da_end_idxs=(700, 800, 900),
+        start_da_end_idxs=(50, 60, 90),
         time_obs=None,  # Will use default
         gaps=None,      # Will use default
         early_stop_config=(100, 1e-2),
-        model_name="CAE_DMD",
-        model_display_name="CAE DMD",
+        model_name="CAE_Weaklinear",
+        model_display_name="CAE Weaklinear",
         residual_vmin=0,
-        residual_vmax=5
+        residual_vmax=1.5
     )

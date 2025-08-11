@@ -22,7 +22,7 @@ from src.models.CAE_Linear.trainer import set_seed, train_jointly_forward_model,
 
 
 def main():
-    from era5_model import ERA5_C_FORWARD
+    from era5_model_FTF import ERA5_C_FORWARD
 
     set_seed(42)
     torch.set_default_dtype(torch.float32)

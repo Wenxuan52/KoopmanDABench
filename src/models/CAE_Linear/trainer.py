@@ -98,7 +98,8 @@ def train_jointly_forward_model(forward_model,
                        decay_rate: float = 0.8,
                        gradclip: float = 1,
                        device: str = 'cpu',
-                       weight_matrix=None):
+                       weight_matrix=None,
+                       patience: int =50):
     
     print(f"[INFO] Training forward model jointly for {num_epochs} epochs")
     if not os.path.exists(model_save_folder):
@@ -129,7 +130,7 @@ def train_jointly_forward_model(forward_model,
     forward_model.to(device)
     
     best_val_loss = np.inf
-    patience = 50
+    patience = patience
     patience_counter = 0
     
     for epoch in range(num_epochs):

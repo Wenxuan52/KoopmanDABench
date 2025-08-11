@@ -236,8 +236,8 @@ if __name__ == '__main__':
     print(raw_data_uv.shape)
     
     forward_model = CYLINDER_C_FORWARD()
-    forward_model.load_state_dict(torch.load('../../../../results/CAE_DMD/Cylinder/model_weights/forward_model.pt', weights_only=True, map_location='cpu'))
-    forward_model.C_forward = torch.load('../../../../results/CAE_DMD/Cylinder/model_weights/C_forward.pt', weights_only=True, map_location='cpu')
+    forward_model.load_state_dict(torch.load('../../../../results/CAE_DMD/Cylinder/cyl_model_weights/forward_model.pt', weights_only=True, map_location='cpu'))
+    forward_model.C_forward = torch.load('../../../../results/CAE_DMD/Cylinder/cyl_model_weights/C_forward.pt', weights_only=True, map_location='cpu')
     forward_model.eval()
 
     print(torch.norm(forward_model.C_forward))

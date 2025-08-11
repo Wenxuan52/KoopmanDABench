@@ -208,10 +208,8 @@ def run_data_assimilation(
     
     # Load forward model
     forward_model = CYLINDER_C_FORWARD().to(device)
-    forward_model.load_state_dict(torch.load(f'../../../../results/{model_name}/Cylinder/cyl_model_weights/forward_model.pt', 
+    forward_model.load_state_dict(torch.load(f'../../../../results/{model_name}/Cylinder/jointly_model_weights/forward_model.pt', 
                                             weights_only=True, map_location=device))
-    forward_model.C_forward = torch.load(f'../../../../results/{model_name}/Cylinder/cyl_model_weights/C_forward.pt', 
-                                       weights_only=True, map_location=device).to(device)
     forward_model.eval()
     print("Forward model loaded")
     
@@ -281,7 +279,7 @@ def run_data_assimilation(
     print(f"Sparse observation shape: {sparse_y_data.shape}")
     
     # Set up DA matrices
-    latent_dim = forward_model.C_forward.shape[0]
+    latent_dim = int(forward_model.hidden_dim)
     B = torch.eye(latent_dim, device=device)
     R = obs_handler.create_block_R_matrix(base_variance=1e-3).to(device)
     
@@ -323,7 +321,6 @@ def run_data_assimilation(
             update_observation_time_index(0)
             
             case_to_run.set_background_state(z_current.ravel())
-            
             da_start_time = perf_counter()
             result = case_to_run.execute()
             da_time = perf_counter() - da_start_time
@@ -333,7 +330,6 @@ def run_data_assimilation(
             final_cost = intermediate_results["J"][-1]
             num_iterations = len(intermediate_results['J'])
             avg_time_per_iteration = da_time / num_iterations
-
             print(f"Final cost function: {final_cost}")
             print(f"Number of iterations: {num_iterations}")
             print(f"Average time per iteration: {avg_time_per_iteration:.6f}s")
@@ -625,8 +621,8 @@ if __name__ == "__main__":
         time_obs=None,  # Will use default
         gaps=None,      # Will use default
         early_stop_config=(100, 1e-2),
-        model_name="CAE_DMD",
-        model_display_name="CAE DMD",
+        model_name="CAE_Weaklinear",
+        model_display_name="CAE Weaklinear",
         residual_vmin=0,
         residual_vmax=5
     )

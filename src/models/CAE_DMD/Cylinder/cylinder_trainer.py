@@ -18,7 +18,7 @@ sys.path.append(src_directory)
 
 from src.utils.Dataset import CylinderDynamicsDataset
 
-from src.models.CAE_DMD.trainer import set_seed, train_jointly_forward_model, save_training_log
+from src.models.CAE_DMD.trainer import set_seed, train_ms_forward_model, save_training_log
 
 
 def main():
@@ -66,7 +66,7 @@ def main():
     print("JOINT TRAINING")
     print("="*50)
     
-    train_loss, val_loss = train_jointly_forward_model(
+    train_loss, val_loss = train_ms_forward_model(
         forward_model=forward_model,
         train_dataset=cyl_train_dataset,
         val_dataset=cyl_val_dataset,

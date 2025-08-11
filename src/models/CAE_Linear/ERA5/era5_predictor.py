@@ -322,7 +322,7 @@ def compute_era5_temporal_metrics(groundtruth, rollout):
 if __name__ == '__main__':
     from era5_model_FTF import ERA5_C_FORWARD  # You need to import your ERA5 model
 
-    fig_save_path = '../../../../results/CAE_DMD/figures/'
+    fig_save_path = '../../../../results/CAE_Linear/figures/'
     
     start_T = 1000
     prediction_step = 100
@@ -355,13 +355,10 @@ if __name__ == '__main__':
     
     # Load model
     forward_model = ERA5_C_FORWARD()
-    forward_model.load_state_dict(torch.load('../../../../results/CAE_DMD/ERA5/model_weights_FTF/forward_model.pt', 
+    forward_model.load_state_dict(torch.load('../../../../results/CAE_Linear/ERA5/model_weights_FTF/forward_model.pt', 
                                             weights_only=True, map_location='cpu'))
-    forward_model.C_forward = torch.load('../../../../results/CAE_DMD/ERA5/model_weights_FTF/C_forward.pt', 
-                                       weights_only=True, map_location='cpu')
     forward_model.eval()
-
-    print(f"C_forward norm: {torch.norm(forward_model.C_forward)}")
+    
     print(forward_model)
 
     inference_stats = {}

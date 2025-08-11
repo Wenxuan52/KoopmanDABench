@@ -1,4 +1,4 @@
-save_folder: '../../../../results/CAE_Weaklinear/ERA5/model_weights'
+save_folder: '../../../../results/CAE_Weaklinear/ERA5/model_weights_FTF'
 seq_length: 10
 num_epochs: 300
 decay_step: 20

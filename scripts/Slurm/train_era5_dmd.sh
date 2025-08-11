@@ -7,11 +7,11 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=40G
 #SBATCH --time=24:00:00
-#SBATCH -e era5_cae_dmd_FTF.err
-#SBATCH -o era5_cae_dmd_FTF.out
+#SBATCH -e era5_dmd.err
+#SBATCH -o era5_dmd.out
 
 source /scratch_dgxl/wy524/miniconda3/etc/profile.d/conda.sh
 conda activate irp-env
 
-cd src/models/CAE_DMD/ERA5
+cd src/models/DMD/ERA5
 python era5_trainer.py

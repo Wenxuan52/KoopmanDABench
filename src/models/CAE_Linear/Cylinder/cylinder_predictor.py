@@ -236,7 +236,7 @@ if __name__ == '__main__':
     print(raw_data_uv.shape)
     
     forward_model = CYLINDER_C_FORWARD()
-    forward_model.load_state_dict(torch.load('../../../../results/CAE_Linear/Cylinder/model_weights/forward_model.pt', weights_only=True, map_location='cpu'))
+    forward_model.load_state_dict(torch.load('../../../../results/CAE_Linear/Cylinder/jointly_model_weights/forward_model.pt', weights_only=True, map_location='cpu'))
     forward_model.eval()
 
     print(forward_model)

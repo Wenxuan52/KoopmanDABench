@@ -10,7 +10,7 @@ from base import *
 CYLINDER_settings = {"obs_dim": [2, 64, 64], 
                     "history_len": 10, 
                     "state_dim": [2, 64, 64], 
-                    "seq_length": 20,
+                    "seq_length": 12,
                     "obs_feature_dim": [512, 128, 64, 32, 16, 8], 
                     "state_filter_feature_dim": [16, 32, 64, 128, 256]}
 
@@ -18,8 +18,8 @@ CYLINDER_settings = {"obs_dim": [2, 64, 64],
 # Input: 64x64 -> Conv7x7 -> Pool -> 32x32 -> Conv5x5 -> Pool -> 16x16 
 # -> Conv3x3 -> Pool -> 8x8 -> Conv3x3 -> Pool -> 4x4 -> Conv3x3 -> 4x4
 # Final size: 256 channels * 4 * 4 = 4096
+# CYLINDER_settings["state_feature_dim"] = [4096, 512]
 CYLINDER_settings["state_feature_dim"] = [4096, 512]
-
 
 '''
 ================================

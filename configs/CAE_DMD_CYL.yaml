@@ -1,5 +1,5 @@
 save_folder: '../../../../results/CAE_DMD/Cylinder/model_weights'
-seq_length: 20
+seq_length: 12
 num_epochs: 300
 decay_step: 20
 batch_size: 24

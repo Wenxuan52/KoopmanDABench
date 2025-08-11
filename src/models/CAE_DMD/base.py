@@ -105,7 +105,7 @@ class base_forward_model(nn.Module):
         z_seq_pinv = self.batch_pinv(z_seq, I_factor=1e-1)
         forward_weights = torch.bmm(z_seq_pinv, z_next_seq).mean(dim=0).repeat(B, 1, 1)
 
-        self.C_forward = forward_weights
+        self.C_forward = forward_weights.detach().clone()
         pred_z_next = self.batch_latent_forward(z_seq)
         
         
