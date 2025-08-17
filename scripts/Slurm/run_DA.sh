@@ -2,7 +2,7 @@
 
 #SBATCH --job-name=run_DA
 #SBATCH --partition=dgxl_irp
-#SBATCH --qos=dgxl_irp_high
+#SBATCH --qos=dgxl_irp_low
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=40G
@@ -13,7 +13,8 @@
 source /scratch_dgxl/wy524/miniconda3/etc/profile.d/conda.sh
 conda activate irp-env
 
-# Cylinder / Dam
-cd src/models/CAE_MLP/Dam
+# Cylinder / Dam / ERA5
+# DMD / CAE_DMD / CAE_Koopman / CAE_Linear / CAE_Weaklinear / CAE_MLP
+cd src/models/CAE_DMD/ERA5
 
-python dam_DA.py
+python era5_DA.py

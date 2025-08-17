@@ -622,7 +622,7 @@ if __name__ == "__main__":
         gaps=None,      # Will use default
         early_stop_config=(100, 1e-2),
         model_name="CAE_MLP",
-        model_display_name="CAE MLP",
+        model_display_name="MLP ROM",
         residual_vmin=0,
         residual_vmax=5
     )

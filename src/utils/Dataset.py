@@ -398,21 +398,28 @@ if __name__ == '__main__':
         max_path="data/ERA5/ERA5_data/max_val.npy"
     )
 
-    inx = 10
-    x, y = train_set[inx]
-    print("Train x shape:", x.shape)  # [12, C, H, W]
-    print("Train y shape:", y.shape)  # [12, C, H, W]
-    print("x min:", x.min().item(), "x max:", x.max().item())
-    print("y min:", y.min().item(), "y max:", y.max().item())
+    inx = 1
 
-    assert x.min() >= 0.0 and x.max() <= 1.0, "x not in [0, 1]"
-    assert y.min() >= 0.0 and y.max() <= 1.0, "y not in [0, 1]"
+    print(train_set.min.shape)
+    print(train_set.max.shape)
 
-    denorm = train_set.denormalizer()
-    x_denorm = denorm(x)
-    print("Denormalized x shape:", x_denorm.shape)
-    print("Channel 0 x_denorm min:", x_denorm[:, 0, ...].min().item(), "Channel 0 x_denorm max:", x_denorm[:, 0, ...].max().item())
-    print("Channel 1 x_denorm min:", x_denorm[:, 1, ...].min().item(), "Channel 1 x_denorm max:", x_denorm[:, 1, ...].max().item())
-    print("Channel 2 x_denorm min:", x_denorm[:, 2, ...].min().item(), "Channel 2 x_denorm max:", x_denorm[:, 2, ...].max().item())
-    print("Channel 3 x_denorm min:", x_denorm[:, 3, ...].min().item(), "Channel 3 x_denorm max:", x_denorm[:, 3, ...].max().item())
-    print("Channel 4 x_denorm min:", x_denorm[:, 4, ...].min().item(), "Channel 4 x_denorm max:", x_denorm[:, 4, ...].max().item())
+    print(train_set[inx][0].shape)
+
+    # inx = 10
+    # x, y = train_set[inx]
+    # print("Train x shape:", x.shape)  # [12, C, H, W]
+    # print("Train y shape:", y.shape)  # [12, C, H, W]
+    # print("x min:", x.min().item(), "x max:", x.max().item())
+    # print("y min:", y.min().item(), "y max:", y.max().item())
+
+    # assert x.min() >= 0.0 and x.max() <= 1.0, "x not in [0, 1]"
+    # assert y.min() >= 0.0 and y.max() <= 1.0, "y not in [0, 1]"
+
+    # denorm = train_set.denormalizer()
+    # x_denorm = denorm(x)
+    # print("Denormalized x shape:", x_denorm.shape)
+    # print("Channel 0 x_denorm min:", x_denorm[:, 0, ...].min().item(), "Channel 0 x_denorm max:", x_denorm[:, 0, ...].max().item())
+    # print("Channel 1 x_denorm min:", x_denorm[:, 1, ...].min().item(), "Channel 1 x_denorm max:", x_denorm[:, 1, ...].max().item())
+    # print("Channel 2 x_denorm min:", x_denorm[:, 2, ...].min().item(), "Channel 2 x_denorm max:", x_denorm[:, 2, ...].max().item())
+    # print("Channel 3 x_denorm min:", x_denorm[:, 3, ...].min().item(), "Channel 3 x_denorm max:", x_denorm[:, 3, ...].max().item())
+    # print("Channel 4 x_denorm min:", x_denorm[:, 4, ...].min().item(), "Channel 4 x_denorm max:", x_denorm[:, 4, ...].max().item())

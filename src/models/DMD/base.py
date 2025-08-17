@@ -75,6 +75,7 @@ class TorchDMD:
         
         # Determine truncation rank
         r = self._compute_rank(s)
+        print('r: ', r)
         U_r = U[:, :r]
         s_r = s[:r]
         V_r = V[:, :r]

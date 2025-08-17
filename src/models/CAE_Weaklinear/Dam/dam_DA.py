@@ -618,7 +618,7 @@ if __name__ == "__main__":
         gaps=None,      # Will use default
         early_stop_config=(100, 1e-2),
         model_name="CAE_Weaklinear",
-        model_display_name="CAE Weaklinear",
+        model_display_name="Weaklinear ROM",
         residual_vmin=0,
         residual_vmax=1.5
     )

@@ -2,7 +2,7 @@
 # coding: utf-8
 
 """
-Data Assimilation for DMD dam model
+Data Assimilation for CAE+DMD dam model
 """
 
 import random
@@ -29,7 +29,8 @@ current_directory = os.getcwd()
 src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", "..", ".."))
 sys.path.append(src_directory)
 
-from dam_model import DAM_C_FORWARD
+from src.models.CAE_Koopman.Dam.dam_model import DAM_C_FORWARD
+from src.models.DMD.base import TorchDMD
 from src.utils.Dataset import DamDynamicsDataset
 import torchda
 
@@ -111,10 +112,10 @@ class UnifiedDynamicSparseObservationHandler:
         mask_info = self.time_masks[time_step_idx]
         
         flat_image = full_image.flatten()
-        fixed_obs = flat_image[self.fixed_positions]
+        fixed_obs = flat_image[self.fixed_positions.to(full_image.device)]
         
         obs_vector = torch.zeros(self.max_obs_count, device=full_image.device)
-        valid_indices = mask_info['valid_indices']
+        valid_indices = mask_info['valid_indices'].to(full_image.device)
         obs_vector[valid_indices] = fixed_obs[valid_indices]
         
         return obs_vector
@@ -125,9 +126,12 @@ class UnifiedDynamicSparseObservationHandler:
         return R
 
 
-# Global variables for observation handler
+# Global variables for observation handler and models
 _global_obs_handler = None
 _global_time_idx = 0
+_global_cae_model = None
+_global_dmd_model = None
+_global_image_shape = None
 
 
 def update_observation_time_index(time_idx: int):
@@ -136,40 +140,75 @@ def update_observation_time_index(time_idx: int):
     _global_time_idx = time_idx
 
 
-def H_unified(x):
-    """Observation operator for unified sparse observations"""
-    global _global_time_idx, _global_obs_handler
+def encoder(x_t):
+    """Encode physical state to CAE+DMD latent space"""
+    global _global_cae_model
+    if x_t.dim() == 1:
+        x_t = x_t.view(1, *_global_image_shape)
+    elif x_t.dim() == 3:
+        x_t = x_t.unsqueeze(0)
     
-    x_reconstructed = forward_model.K_S_preimage(x)
+    z_t = _global_cae_model.K_S(x_t)
+    return z_t.squeeze()
+
+
+def decoder(z_t):
+    """Decode from CAE+DMD latent space to physical state"""
+    global _global_cae_model
+    if z_t.dim() == 1:
+        z_t = z_t.unsqueeze(0)
+    
+    x_t = _global_cae_model.K_S_preimage(z_t)
+    return x_t.squeeze()
+
+
+def latent_forward(z_t):
+    """Forward propagation in latent space using DMD"""
+    global _global_dmd_model
+    if z_t.dim() == 1:
+        z_t = z_t.unsqueeze(0)
+    
+    # DMD expects [hidden_dim, 1] format
+    z_tp = _global_dmd_model.predict(z_t.T).T
+    return z_tp.squeeze()
+
+
+def H_unified(z_t):
+    """Observation operator for unified sparse observations"""
+    global _global_time_idx, _global_obs_handler, _global_image_shape
+    
+    x_reconstructed = decoder(z_t)
+    if x_reconstructed.dim() == 1:
+        x_reconstructed = x_reconstructed.view(_global_image_shape)
+    
     sparse_obs = _global_obs_handler.apply_unified_observation(
-        x_reconstructed.squeeze(), _global_time_idx
+        x_reconstructed, _global_time_idx
     )
     return sparse_obs.unsqueeze(0)
 
 
 def dmd_wrapper(z_t, time_fw=None, *args):
-    """Wrapper for DMD forward model"""
+    """Wrapper for CAE+DMD forward model"""
+    if z_t.dim() > 1:
+        z_t = z_t.squeeze()
+    
     if time_fw is None:
-        if z_t.ndim == 1:
-            z_t = z_t.unsqueeze(0)
-        z_tp = forward_model.latent_forward(z_t)
+        z_tp = latent_forward(z_t)
+        return z_tp
     else:
-        if z_t.ndim == 1:
-            z_t = z_t.unsqueeze(0)
-
-        z_tp = torch.empty((time_fw.shape[0], z_t.shape[0], z_t.shape[1]), device=z_t.device)
+        num_steps = int(time_fw.shape[0])
+        latent_dim = z_t.shape[0]
+        z_tp = torch.empty((num_steps, latent_dim), device=z_t.device)
         
-        current_state = forward_model.K_S_preimage(z_t)
+        z_current = z_t
         
-        for i in range(int(time_fw.shape[0])):
-            z_current = forward_model.K_S(current_state)
+        for i in range(num_steps):
             z_tp[i] = z_current
             
-            if i < int(time_fw.shape[0]) - 1:
-                z_next = forward_model.latent_forward(z_current)
-                current_state = forward_model.K_S_preimage(z_next)
-    
-    return z_tp
+            if i < num_steps - 1:
+                z_current = latent_forward(z_current)
+        
+        return z_tp.unsqueeze(1)
 
 
 def run_data_assimilation(
@@ -184,6 +223,21 @@ def run_data_assimilation(
     residual_vmin: float = 0,
     residual_vmax: float = 5
 ):
+    """
+    Run data assimilation for CAE+DMD model on dam dataset
+    
+    Args:
+        max_obs_ratio: Maximum observation ratio
+        min_obs_ratio: Minimum observation ratio
+        start_da_end_idxs: Tuple of (start, DA_point, end) indices
+        time_obs: List of observation time steps
+        gaps: List of gaps between observations
+        early_stop_config: Tuple of (patience, threshold) for early stopping
+        model_name: Name for saving results
+        model_display_name: Display name for plots
+        residual_vmin: Minimum value for residual plot colormap
+        residual_vmax: Maximum value for residual plot colormap
+    """
     
     # Set default values if not provided
     if time_obs is None:
@@ -196,8 +250,8 @@ def run_data_assimilation(
     if gaps is None:
         gaps = [10] * (len(time_obs) - 1)
     
-    # Initialize
-    global forward_model, _global_obs_handler
+    # Initialize globals
+    global _global_cae_model, _global_dmd_model, _global_obs_handler, _global_image_shape
     
     # Set random seed and device
     set_seed(42)
@@ -206,52 +260,51 @@ def run_data_assimilation(
     device = set_device()
     print(f"Using device: {device}")
     
-    # Load forward model
-    forward_model = DAM_C_FORWARD().to(device)
-    forward_model.load_state_dict(torch.load(f'../../../../results/{model_name}/Dam/model_weights/forward_model.pt', 
-                                            weights_only=True, map_location=device))
-    forward_model.C_forward = torch.load(f'../../../../results/{model_name}/Dam/model_weights/C_forward.pt', 
-                                       weights_only=True, map_location=device).to(device)
-    forward_model.eval()
-    print("Forward model loaded")
+    # Load CAE model
+    _global_cae_model = DAM_C_FORWARD()
+    _global_cae_model.load_state_dict(
+        torch.load(f'../../../../results/CAE_Koopman/Dam/model_weights/forward_model.pt', 
+                  weights_only=True, map_location=device)
+    )
+    _global_cae_model.to(device)
+    _global_cae_model.eval()
+    print("CAE model loaded")
+    
+    # Load DMD model
+    _global_dmd_model = TorchDMD(svd_rank=93, device=device)
+    _global_dmd_model.load_dmd(f'../../../../results/{model_name}/Dam/dmd_model.pth')
+    print("DMD model loaded")
     
     # Load datasets
     forward_step = 12
     val_idx = -1
+    _global_image_shape = (2, 64, 64)
     
-    dam_train_dataset = DamDynamicsDataset(data_path="../../../../data/dam/dam_train_data.npy",
-                seq_length = forward_step,
-                mean=None,
-                std=None)
+    dam_train_dataset = DamDynamicsDataset(
+        data_path="../../../../data/dam/dam_train_data.npy",
+        seq_length=forward_step,
+        mean=None,
+        std=None
+    )
     
-    dam_val_dataset = DamDynamicsDataset(data_path="../../../../data/dam/dam_val_data.npy",
-                seq_length = forward_step,
-                mean=dam_train_dataset.mean,
-                std=dam_train_dataset.std)
+    dam_val_dataset = DamDynamicsDataset(
+        data_path="../../../../data/dam/dam_val_data.npy",
+        seq_length=forward_step,
+        mean=dam_train_dataset.mean,
+        std=dam_train_dataset.std
+    )
     
     denorm = dam_val_dataset.denormalizer()
-    
-    # Create a device-aware denormalizer
-    def safe_denorm(x):
-        """Device-aware denormalization"""
-        if isinstance(x, torch.Tensor):
-            # Ensure x is on CPU for denormalization
-            x_cpu = x.cpu() if x.is_cuda else x
-            mean = dam_val_dataset.mean.reshape(1, -1, 1, 1)
-            std = dam_val_dataset.std.reshape(1, -1, 1, 1)
-            return (x_cpu * std + mean).cpu()
-        else:
-            return denorm(x)
     
     # Get ground truth data
     groundtruth = dam_val_dataset.data[val_idx, ...]
     groundtruth = torch.from_numpy(groundtruth)
     print(f"Ground truth shape: {groundtruth.shape}")
     
-    # Initialize observation handler with provided parameters
+    # Initialize observation handler
     obs_handler = UnifiedDynamicSparseObservationHandler(
-        max_obs_ratio=max_obs_ratio, 
-        min_obs_ratio=min_obs_ratio, 
+        max_obs_ratio=max_obs_ratio,
+        min_obs_ratio=min_obs_ratio,
         seed=42
     )
     _global_obs_handler = obs_handler
@@ -277,15 +330,16 @@ def run_data_assimilation(
     print(f"Sparse observation shape: {sparse_y_data.shape}")
     
     # Set up DA matrices
-    latent_dim = forward_model.C_forward.shape[0]
+    latent_dim = _global_cae_model.hidden_dim
     B = torch.eye(latent_dim, device=device)
     R = obs_handler.create_block_R_matrix(base_variance=1e-3).to(device)
     
     print(f"Background covariance B shape: {B.shape}")
     print(f"Observation covariance R shape: {R.shape}")
+    print(f"R matrix condition number: {torch.linalg.cond(R):.2e}")
     
-    # Configure 4D-Var with provided early stop configuration
-    case_to_run = (
+    # Configure 4D-Var
+    case_builder = (
         torchda.CaseBuilder()
         .set_observation_time_steps(time_obs)
         .set_gaps(gaps)
@@ -295,30 +349,33 @@ def run_data_assimilation(
         .set_observation_covariance_matrix(R)
         .set_observations(sparse_y_data)
         .set_optimizer_cls(torch.optim.Adam)
-        .set_optimizer_args({"lr": 0.001})
-        .set_max_iterations(5000)
+        .set_optimizer_args({"lr": 0.0001})
+        .set_max_iterations(500)
         .set_early_stop(early_stop_config)
         .set_algorithm(torchda.Algorithms.Var4D)
-        .set_device(torchda.Device.GPU)
+        .set_device(torchda.Device.GPU if device == "cuda" else torchda.Device.CPU)
         .set_output_sequence_length(1)
     )
+    
+    case_to_run = case_builder
     
     # Run 4D-Var assimilation
     print("\nRunning 4D-Var data assimilation...")
     outs_4d_da = []
     start_time = perf_counter()
     
+    # Initialize with encoding of the initial state
     current_state = dam_val_dataset.normalize(groundtruth[start_da_end_idxs[0]]).to(device)
+    z_current = encoder(current_state)
     
     for i in range(start_da_end_idxs[0], start_da_end_idxs[-1] + 1):
         print(f"Processing step {i}")
         
-        z_current = forward_model.K_S(current_state)
-        
         if i == start_da_end_idxs[1]:
+            # Perform data assimilation at this time step
             update_observation_time_index(0)
             
-            case_to_run.set_background_state(z_current.ravel())
+            case_to_run.set_background_state(z_current)
             da_start_time = perf_counter()
             result = case_to_run.execute()
             da_time = perf_counter() - da_start_time
@@ -333,11 +390,16 @@ def run_data_assimilation(
             print(f"Average time per iteration: {avg_time_per_iteration:.6f}s")
             
             outs_4d_da.append(z_assimilated)
-            current_state = forward_model.K_S_preimage(z_assimilated)
+            
+            # Continue propagation in latent space
+            z_current = z_assimilated
         else:
+            # Store current latent state
             outs_4d_da.append(z_current)
-            z_next = dmd_wrapper(z_current)
-            current_state = forward_model.K_S_preimage(z_next)
+        
+        # Propagate forward in latent space for next iteration (if not last step)
+        if i < start_da_end_idxs[-1]:
+            z_current = latent_forward(z_current)
         
         print("=" * 50)
     
@@ -349,17 +411,20 @@ def run_data_assimilation(
     start_time = perf_counter()
     
     with torch.no_grad():
+        # Initialize with encoding of the initial state
         current_state = dam_val_dataset.normalize(groundtruth[start_da_end_idxs[0]]).to(device)
+        z_current = encoder(current_state)
         
         for i in range(start_da_end_idxs[0], start_da_end_idxs[-1] + 1):
             print(f"Step {i}")
             
-            z_current = forward_model.K_S(current_state)
+            # Store current latent state
             outs_no_4d_da.append(z_current)
             
-            z_next = forward_model.latent_forward(z_current)
-            next_state = forward_model.K_S_preimage(z_next)
-            current_state = next_state
+            # Propagate forward in latent space for next iteration (if not last step)
+            if i < start_da_end_idxs[-1]:
+                z_current = latent_forward(z_current)
+            
             print("=" * 30)
     
     print(f"Baseline time: {perf_counter() - start_time:.2f}s")
@@ -375,30 +440,17 @@ def run_data_assimilation(
     
     with torch.no_grad():
         for i, (no_da, da) in enumerate(zip(outs_no_4d_da, outs_4d_da), start=start_da_end_idxs[0]):
-            da_img = forward_model.K_S_preimage(da).view(2, 64, 64).cpu()
-            noda_img = forward_model.K_S_preimage(no_da).view(2, 64, 64).cpu()
+            da_img = decoder(da).view(2, 64, 64).cpu()
+            noda_img = decoder(no_da).view(2, 64, 64).cpu()
             
-            de_da_img = safe_denorm(da_img)
-            de_noda_img = safe_denorm(noda_img)
-
-            # if i == start_da_end_idxs[1]:
-            #     da_minus_real_img_square = (de_da_img[0] - groundtruth[i+1]) ** 2
-            #     noda_minus_real_img_square = (de_noda_img[0] - groundtruth[i]) ** 2
-            # else:
+            de_da_img = denorm(da_img)
+            de_noda_img = denorm(noda_img)
+            
             da_minus_real_img_square = (de_da_img[0] - groundtruth[i]) ** 2
             noda_minus_real_img_square = (de_noda_img[0] - groundtruth[i]) ** 2
             
             diffs_da_real_mse.append(da_minus_real_img_square.mean().item())
             diffs_noda_real_mse.append(noda_minus_real_img_square.mean().item())
-
-            # if i == start_da_end_idxs[1]:
-            #     diffs_da_real_rrmse.append((da_minus_real_img_square.sum()/((groundtruth[i+1]**2).sum())).sqrt().item())
-            #     diffs_noda_real_rrmse.append((noda_minus_real_img_square.sum()/((groundtruth[i]**2).sum())).sqrt().item())
-                
-            #     diffs_da_real_ssim.append(ssim(groundtruth[i+1].numpy(), de_da_img[0].numpy(), data_range=1, channel_axis=0))
-            #     diffs_noda_real_ssim.append(ssim(groundtruth[i].numpy(), de_noda_img[0].numpy(), data_range=1, channel_axis=0))
-
-            # else:
             
             diffs_da_real_rrmse.append((da_minus_real_img_square.sum()/((groundtruth[i]**2).sum())).sqrt().item())
             diffs_noda_real_rrmse.append((noda_minus_real_img_square.sum()/((groundtruth[i]**2).sum())).sqrt().item())
@@ -406,7 +458,16 @@ def run_data_assimilation(
             diffs_da_real_ssim.append(ssim(groundtruth[i].numpy(), de_da_img[0].numpy(), data_range=1, channel_axis=0))
             diffs_noda_real_ssim.append(ssim(groundtruth[i].numpy(), de_noda_img[0].numpy(), data_range=1, channel_axis=0))
     
-    # Save results with model-specific path
+    # Print sample metrics
+    da_idxs = [10, 20, 30]
+    for idx in da_idxs:
+        if idx < len(diffs_da_real_mse):
+            print(f"\nMetrics at index {idx}:")
+            print(f"  MSE - No DA: {diffs_noda_real_mse[idx]:.6f}, 4D-Var: {diffs_da_real_mse[idx]:.6f}")
+            print(f"  RRMSE - No DA: {diffs_noda_real_rrmse[idx]:.6f}, 4D-Var: {diffs_da_real_rrmse[idx]:.6f}")
+            print(f"  SSIM - No DA: {diffs_noda_real_ssim[idx]:.6f}, 4D-Var: {diffs_da_real_ssim[idx]:.6f}")
+    
+    # Save results
     results_data = {
         'diffs_da_real_mse': diffs_da_real_mse,
         'diffs_noda_real_mse': diffs_noda_real_mse,
@@ -420,7 +481,7 @@ def run_data_assimilation(
     os.makedirs(os.path.dirname(results_path), exist_ok=True)
     with open(results_path, 'wb') as f:
         pickle.dump(results_data, f)
-    print(f"Results saved to {results_path}")
+    print(f"\nResults saved to {results_path}")
     
     # Plot metrics
     plot_metrics(diffs_da_real_mse, diffs_noda_real_mse,
@@ -429,10 +490,9 @@ def run_data_assimilation(
                 start_da_end_idxs, time_obs, model_name)
     
     # Generate comparison figure
-    da_idxs = [10, 20, 30]
-    generate_comparison_figure(groundtruth, outs_4d_da, outs_no_4d_da, 
-                             da_idxs, time_obs, forward_model, safe_denorm,
-                             model_name, model_display_name, 
+    generate_comparison_figure(groundtruth, outs_4d_da, outs_no_4d_da,
+                             da_idxs, time_obs, denorm,
+                             model_name, model_display_name,
                              residual_vmin, residual_vmax)
     
     print("\nData assimilation completed!")
@@ -466,7 +526,6 @@ def plot_metrics(diffs_da_real_mse, diffs_noda_real_mse,
     
     plt.tight_layout()
     
-    # Save with model-specific path
     metrics_path = f'../../../../results/{model_name}/DA/dam_metrics_comparison.png'
     os.makedirs(os.path.dirname(metrics_path), exist_ok=True)
     plt.savefig(metrics_path, dpi=300)
@@ -474,26 +533,11 @@ def plot_metrics(diffs_da_real_mse, diffs_noda_real_mse,
     print(f"Metrics plot saved to {metrics_path}")
 
 
-def generate_comparison_figure(groundtruth, outs_4d_da, outs_no_4d_da, 
-                             da_idxs, time_obs, forward_model, denorm,
+def generate_comparison_figure(groundtruth, outs_4d_da, outs_no_4d_da,
+                             da_idxs, time_obs, denorm,
                              model_name, model_display_name,
                              residual_vmin, residual_vmax):
     """Generate comparison figure"""
-    # Create a device-aware denormalizer
-    def safe_denorm(x):
-        """Device-aware denormalization"""
-        if isinstance(x, torch.Tensor):
-            x_cpu = x.cpu() if x.is_cuda else x
-            # Get mean and std from the dataset through denorm closure
-            # This is a bit hacky but works with the existing denormalizer
-            try:
-                return denorm(x_cpu)
-            except:
-                # If denorm fails, return as is
-                return x_cpu
-        else:
-            return denorm(x)
-    
     n_times = len(da_idxs)
     figsize = (1.5 * n_times + 0.5, 7)
     threshold = 0.1
@@ -501,10 +545,9 @@ def generate_comparison_figure(groundtruth, outs_4d_da, outs_no_4d_da,
     
     # Create figure
     fig = plt.figure(figsize=figsize)
-    gs = GridSpec(5, n_times, figure=fig, hspace=0.02, wspace=0.01, 
+    gs = GridSpec(5, n_times, figure=fig, hspace=0.02, wspace=0.01,
                   left=0.1, right=0.88, top=0.90, bottom=0.06)
     
-    # Use model display name for title
     fig.suptitle(model_display_name, fontsize=14, fontweight='bold', y=0.96)
     
     # Create subplots
@@ -528,40 +571,42 @@ def generate_comparison_figure(groundtruth, outs_4d_da, outs_no_4d_da,
     
     with torch.no_grad():
         for i, da_idx in enumerate(da_idxs):
-            # if i == 0:
-            #     img_tensor = (groundtruth[time_obs[i]+1, 0, ...] ** 2 + 
-            #                 groundtruth[time_obs[i]+1, 1, ...] ** 2) ** 0.5
-            # else:
-            img_tensor = (groundtruth[time_obs[i], 0, ...] ** 2 + 
+            # Get ground truth image
+            img_tensor = (groundtruth[time_obs[i], 0, ...] ** 2 +
                         groundtruth[time_obs[i], 1, ...] ** 2) ** 0.5
+            
+            print(f"Time observation {i}: {time_obs[i]}")
             
             # Plot ground truth
             im1 = ax[0, i].imshow(img_tensor.reshape(64, 64), cmap="viridis", aspect='equal', origin='lower')
             
             # Get reconstructions
-            no_da = forward_model.K_S_preimage(outs_no_4d_da[da_idx]).cpu()
-            da = forward_model.K_S_preimage(outs_4d_da[da_idx]).cpu()
+            no_da = decoder(outs_no_4d_da[da_idx]).cpu().view(2, 64, 64)
+            da = decoder(outs_4d_da[da_idx]).cpu().view(2, 64, 64)
             
-            de_no_da = safe_denorm(no_da)
-            de_da = safe_denorm(da)
+            de_no_da = denorm(no_da)
+            de_da = denorm(da)
             
             image_noda = (de_no_da[0, 0, ...] ** 2 + de_no_da[0, 1, ...] ** 2) ** 0.5
             image_da = (de_da[0, 0, ...] ** 2 + de_da[0, 1, ...] ** 2) ** 0.5
+            
+            # Print difference information
+            print(f"No DA vs True: {np.sum(np.abs(img_tensor.numpy() - image_noda.numpy())):.4f}")
+            print(f"4D-Var vs True: {np.sum(np.abs(img_tensor.numpy() - image_da.numpy())):.4f}")
             
             # Plot reconstructions
             ax[1, i].imshow(image_noda.reshape(64, 64), cmap="viridis", aspect='equal', origin='lower')
             ax[2, i].imshow(image_da.reshape(64, 64), cmap="viridis", aspect='equal', origin='lower')
             
-            # Calculate and plot residuals with provided vmin/vmax
+            # Calculate and plot residuals
             res_no_da = (img_tensor.reshape(64, 64) - image_noda.reshape(64, 64)).abs()
             res_no_da = torch.where(res_no_da > threshold, res_no_da, 0)
+            im2 = ax[3, i].imshow(res_no_da, cmap="magma", aspect='equal',
+                                vmin=residual_vmin, vmax=residual_vmax, origin='lower')
             
             res_da = (img_tensor.reshape(64, 64) - image_da.reshape(64, 64)).abs()
             res_da = torch.where(res_da > threshold, res_da, 0)
-            
-            im2 = ax[3, i].imshow(res_no_da, cmap="magma", aspect='equal', 
-                                vmin=residual_vmin, vmax=residual_vmax, origin='lower')
-            ax[4, i].imshow(res_da, cmap="magma", aspect='equal', 
+            ax[4, i].imshow(res_da, cmap="magma", aspect='equal',
                           vmin=residual_vmin, vmax=residual_vmax, origin='lower')
     
     # Add titles
@@ -585,7 +630,7 @@ def generate_comparison_figure(groundtruth, outs_4d_da, outs_no_4d_da,
     cbar2.ax.tick_params(labelsize=8)
     cbar2.set_label('|Residual|', rotation=270, labelpad=15, fontsize=9)
     
-    # Save figure with model-specific path and filename
+    # Save figure
     save_filename = f"../../../../results/{model_name}/DA/dam_{model_name}.png"
     os.makedirs(os.path.dirname(save_filename), exist_ok=True)
     plt.savefig(save_filename, dpi=dpi, bbox_inches='tight', pad_inches=0.05)
@@ -594,18 +639,16 @@ def generate_comparison_figure(groundtruth, outs_4d_da, outs_no_4d_da,
 
 
 if __name__ == "__main__":
-    # Example usage with different model configurations
-    
-    # CAE DMD (default)
+    # Example usage for CAE+DMD model on dam dataset
     run_data_assimilation(
         max_obs_ratio=0.055,
         min_obs_ratio=0.045,
         start_da_end_idxs=(50, 60, 90),
         time_obs=None,  # Will use default
-        gaps=None,      # Will use default
+        gaps=None,      # Will use default  
         early_stop_config=(100, 1e-2),
         model_name="CAE_DMD",
-        model_display_name="CAE DMD",
+        model_display_name="DMD ROM",
         residual_vmin=0,
         residual_vmax=1.5
     )
