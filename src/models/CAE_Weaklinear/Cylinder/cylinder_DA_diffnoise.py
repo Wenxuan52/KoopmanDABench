@@ -298,7 +298,7 @@ def run_single_noise_da_experiment(
         .set_observation_covariance_matrix(R)
         .set_observations(noisy_y_data_tensor)
         .set_optimizer_cls(torch.optim.Adam)
-        .set_optimizer_args({"lr": 0.01})
+        .set_optimizer_args({"lr": 0.005})
         .set_max_iterations(5000)
         .set_early_stop(early_stop_config)
         .set_algorithm(torchda.Algorithms.Var4D)

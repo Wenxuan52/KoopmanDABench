@@ -6,17 +6,17 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import to_rgba
 
 if __name__ == '__main__':
-    lw = 1.5
+    lw = 2.0
 
     fig_save_path = '../../results/Comparison/figures/'
     
     model_paths = [
-        '../../results/DMD/DA/cyl_comp_data.pkl',
-        '../../results/CAE_DMD/DA/cyl_comp_data.pkl',
-        '../../results/CAE_Koopman/DA/cyl_comp_data.pkl',
-        '../../results/CAE_Linear/DA/cyl_comp_data.pkl',
-        '../../results/CAE_Weaklinear/DA/cyl_comp_data.pkl',
-        '../../results/CAE_MLP/DA/cyl_comp_data.pkl'
+        '../../results/DMD/DA/dam_comp_data.pkl',
+        '../../results/CAE_DMD/DA/dam_comp_data.pkl',
+        '../../results/CAE_Koopman/DA/dam_comp_data.pkl',
+        '../../results/CAE_Linear/DA/dam_comp_data.pkl',
+        '../../results/CAE_Weaklinear/DA/dam_comp_data.pkl',
+        '../../results/CAE_MLP/DA/dam_comp_data.pkl'
     ]
 
     model_names = ['DMD', 'DMD ROM', 'Koopman ROM', 'Linear ROM', 'Weaklinear ROM', 'MLP ROM']
@@ -80,9 +80,9 @@ if __name__ == '__main__':
     first_model = next(iter(all_models_data.values()))
     n_points = len(first_model['da_mse'])
     time_steps = np.arange(n_points)
-    time_steps_offset = time_steps + 700
+    time_steps_offset = time_steps + 50
     
-    da_times = [800, 810, 820]
+    da_times = [60, 70, 80]
     
     # Plot 1: Comprehensive comparison for 4D Var performance (1x4 layout)
     fig, axes = plt.subplots(1, 4, figsize=(24, 6))  # Changed to 1 row, 4 columns, wider figure
@@ -147,7 +147,7 @@ if __name__ == '__main__':
     axes[3].grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig(f'{fig_save_path}cyl_4dvar_comparison.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'{fig_save_path}dam_4dvar_comparison.png', dpi=300, bbox_inches='tight')
     plt.show()
     
     # Plot 2: Average performance bar chart (1x3 layout)
@@ -181,7 +181,7 @@ if __name__ == '__main__':
         axes[i].grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig(f'{fig_save_path}cyl_average_performance.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'{fig_save_path}dam_average_performance.png', dpi=300, bbox_inches='tight')
     plt.show()
     
     # Plot 3: Improvement percentage comparison (1x3 layout)
@@ -189,8 +189,7 @@ if __name__ == '__main__':
     fig, axes = plt.subplots(1, 3, figsize=(20, 7))
     fig.suptitle('4D VAR Background Field Improvement Over No DA (%)\n(First DA Time Frame Analysis)', fontsize=18, fontweight='bold')
     
-    # Find the index of first DA time (800 - 700 = 100th index)
-    first_da_index = 800 - 700  # Convert to array index (assuming time_steps_offset starts from 700)
+    first_da_index = 60 - 50
     
     for i, (metric, (da_key, noda_key)) in enumerate(zip(metrics, metric_keys)):
         model_names_list = list(all_models_data.keys())
@@ -228,7 +227,7 @@ if __name__ == '__main__':
                         fontsize=10, fontweight='bold')
     
     plt.tight_layout()
-    plt.savefig(f'{fig_save_path}cyl_background_field_improvement.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'{fig_save_path}dam_background_field_improvement.png', dpi=300, bbox_inches='tight')
     plt.show()
     
     # Additional Plot: Average improvement across all DA windows
@@ -270,7 +269,7 @@ if __name__ == '__main__':
                         fontsize=10, fontweight='bold')
     
     plt.tight_layout()
-    plt.savefig(f'{fig_save_path}cyl_average_improvement.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'{fig_save_path}dam_average_improvement.png', dpi=300, bbox_inches='tight')
     plt.show()
     
     # Statistical summary
@@ -306,7 +305,7 @@ if __name__ == '__main__':
     print("\nBACKGROUND FIELD IMPROVEMENT ANALYSIS (First DA Time Frame - t=800):")
     print("=" * 70)
     
-    first_da_index = 800 - 700  # Convert to array index
+    first_da_index = 60 - 50  # Convert to array index
     
     for name, data in all_models_data.items():
         print(f"\n{name.upper()}:")

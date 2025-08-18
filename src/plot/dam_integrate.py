@@ -3,12 +3,12 @@ import matplotlib.image as mpimg
 
 fig_save_path = '../../results/Comparison/figures/'
 
-img1 = mpimg.imread('../../results/DMD/DA/cyl_DMD.png')
-img2 = mpimg.imread('../../results/CAE_DMD/DA/cyl_CAE_DMD.png')
-img3 = mpimg.imread('../../results/CAE_Koopman/DA/cyl_CAE_Koopman.png')
-img4 = mpimg.imread('../../results/CAE_Linear/DA/cyl_CAE_Linear.png')
-img5 = mpimg.imread('../../results/CAE_Weaklinear/DA/cyl_CAE_Weaklinear.png')
-img6 = mpimg.imread('../../results/CAE_MLP/DA/cyl_CAE_MLP.png')
+img1 = mpimg.imread('../../results/DMD/DA/dam_DMD.png')
+img2 = mpimg.imread('../../results/CAE_DMD/DA/dam_CAE_DMD.png')
+img3 = mpimg.imread('../../results/CAE_Koopman/DA/dam_CAE_Koopman.png')
+img4 = mpimg.imread('../../results/CAE_Linear/DA/dam_CAE_Linear.png')
+img5 = mpimg.imread('../../results/CAE_Weaklinear/DA/dam_CAE_Weaklinear.png')
+img6 = mpimg.imread('../../results/CAE_MLP/DA/dam_CAE_MLP.png')
 
 # fig, axes = plt.subplots(1, 6, figsize=(14, 10))
 
@@ -36,4 +36,4 @@ axes[1, 2].axis('off')
 
 plt.subplots_adjust(wspace=0.05, hspace=0.05)
 
-plt.savefig(f'{fig_save_path}cyl_4dvar_integrate.png', dpi=300, bbox_inches='tight')
+plt.savefig(f'{fig_save_path}dam_4dvar_integrate.png', dpi=300, bbox_inches='tight')

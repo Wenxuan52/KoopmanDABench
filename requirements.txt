@@ -1,0 +1,17 @@
+numpy
+pandas
+matplotlib
+scipy
+scikit-learn
+torch
+torchvision
+torchaudio
+tqdm
+h5py
+cvxpy
+einops
+jax
+jaxlib
+jaxopt
+scikit-image
+ipykernel

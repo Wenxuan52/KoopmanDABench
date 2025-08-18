@@ -603,7 +603,7 @@ def plot_single_model_sparse_comparison(all_results, model_name="CAE_DMD", model
     
     ax.set_xlabel('Time Step', fontsize=14)
     ax.set_ylabel('MSE', fontsize=14)
-    ax.set_title(f'{model_display_name} - Variable Observation Density Impact', 
+    ax.set_title(f'{model_display_name}', 
                 fontsize=16, fontweight='bold', pad=20)
     ax.grid(True, alpha=0.3)
     ax.legend(fontsize=12, loc='upper right')

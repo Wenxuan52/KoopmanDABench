@@ -345,7 +345,7 @@ def plot_latent_space_tsne_3d(gt_latents, no_da_latents, da_latents,
     ax.set_title(f'{model_display_name}', fontsize=16, fontweight='bold', pad=20)
     
     # Legend
-    legend = ax.legend(loc='upper left', frameon=True, shadow=True, fontsize=11, title='Method', title_fontsize=12,
+    legend = ax.legend(loc='upper left', frameon=True, shadow=True, fontsize=11, title_fontsize=12,
                        bbox_to_anchor=(0.02, 0.98))
     legend.get_frame().set_facecolor('white')
     legend.get_frame().set_alpha(0.95)
@@ -475,7 +475,7 @@ def run_latent_space_analysis(
         .set_observation_covariance_matrix(R)
         .set_observations(sparse_y_data)
         .set_optimizer_cls(torch.optim.Adam)
-        .set_optimizer_args({"lr": 0.05})
+        .set_optimizer_args({"lr": 0.01})
         .set_max_iterations(5000)
         .set_early_stop(early_stop_config)
         .set_algorithm(torchda.Algorithms.Var4D)

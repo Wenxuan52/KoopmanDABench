@@ -446,10 +446,10 @@ def run_data_assimilation(
     
     # Compute metrics
     print("\nComputing metrics...")
+
     def compute_channel_wise_metrics():
         """Compute metrics for each channel separately"""
-        # Initialize channel-wise metrics dictionaries
-        channel_names = ['Temperature', 'U_wind', 'V_wind', 'Humidity', 'Pressure']  # Adjust names as needed
+        channel_names = ['Geopotential', 'Temperature', 'Humidity', 'U_wind', 'V_wind']
 
         diffs_da_real_mse_channels = {f'channel_{c}': [] for c in range(5)}
         diffs_noda_real_mse_channels = {f'channel_{c}': [] for c in range(5)}
@@ -483,25 +483,44 @@ def run_data_assimilation(
                 channel_ssim_noda = []
                 
                 for c in range(5):
-                    # MSE for this channel
-                    da_minus_real_img_square_c = (de_da_img[c] - groundtruth[i][c]) ** 2
-                    noda_minus_real_img_square_c = (de_noda_img[c] - groundtruth[i][c]) ** 2
+                    # Handle assimilation offset for step 60
+                    if i == start_da_end_idxs[1]:
+                        da_minus_real_img_square_c = (de_da_img[c] - groundtruth[i+1][c]) ** 2
+                        noda_minus_real_img_square_c = (de_noda_img[c] - groundtruth[i][c]) ** 2
+                        
+                        rrmse_da_c = (da_minus_real_img_square_c.sum() / ((groundtruth[i+1][c]**2).sum())).sqrt().item()
+                        rrmse_noda_c = (noda_minus_real_img_square_c.sum() / ((groundtruth[i][c]**2).sum())).sqrt().item()
+                        
+                        # SSIM for this channel
+                        data_range_c = groundtruth[i+1][c].max().item() - groundtruth[i+1][c].min().item()
+                        if data_range_c > 0:
+                            ssim_da_c = ssim(groundtruth[i+1][c].numpy(), de_da_img[c].numpy(), data_range=data_range_c)
+                        else:
+                            ssim_da_c = 1.0
+                        
+                        data_range_c_noda = groundtruth[i][c].max().item() - groundtruth[i][c].min().item()
+                        if data_range_c_noda > 0:
+                            ssim_noda_c = ssim(groundtruth[i][c].numpy(), de_noda_img[c].numpy(), data_range=data_range_c_noda)
+                        else:
+                            ssim_noda_c = 1.0
+                    else:
+                        da_minus_real_img_square_c = (de_da_img[c] - groundtruth[i][c]) ** 2
+                        noda_minus_real_img_square_c = (de_noda_img[c] - groundtruth[i][c]) ** 2
+                        
+                        rrmse_da_c = (da_minus_real_img_square_c.sum() / ((groundtruth[i][c]**2).sum())).sqrt().item()
+                        rrmse_noda_c = (noda_minus_real_img_square_c.sum() / ((groundtruth[i][c]**2).sum())).sqrt().item()
+                        
+                        # SSIM for this channel
+                        data_range_c = groundtruth[i][c].max().item() - groundtruth[i][c].min().item()
+                        if data_range_c > 0:
+                            ssim_da_c = ssim(groundtruth[i][c].numpy(), de_da_img[c].numpy(), data_range=data_range_c)
+                            ssim_noda_c = ssim(groundtruth[i][c].numpy(), de_noda_img[c].numpy(), data_range=data_range_c)
+                        else:
+                            ssim_da_c = 1.0
+                            ssim_noda_c = 1.0
                     
                     mse_da_c = da_minus_real_img_square_c.mean().item()
                     mse_noda_c = noda_minus_real_img_square_c.mean().item()
-                    
-                    # RRMSE for this channel
-                    rrmse_da_c = (da_minus_real_img_square_c.sum() / ((groundtruth[i][c]**2).sum())).sqrt().item()
-                    rrmse_noda_c = (noda_minus_real_img_square_c.sum() / ((groundtruth[i][c]**2).sum())).sqrt().item()
-                    
-                    # SSIM for this channel
-                    data_range_c = groundtruth[i][c].max().item() - groundtruth[i][c].min().item()
-                    if data_range_c > 0:
-                        ssim_da_c = ssim(groundtruth[i][c].numpy(), de_da_img[c].numpy(), data_range=data_range_c)
-                        ssim_noda_c = ssim(groundtruth[i][c].numpy(), de_noda_img[c].numpy(), data_range=data_range_c)
-                    else:
-                        ssim_da_c = 1.0  # Perfect similarity if no variation
-                        ssim_noda_c = 1.0
                     
                     # Store channel-wise metrics
                     diffs_da_real_mse_channels[f'channel_{c}'].append(mse_da_c)
@@ -534,82 +553,48 @@ def run_data_assimilation(
                 diffs_da_real_rrmse, diffs_noda_real_rrmse,
                 diffs_da_real_ssim, diffs_noda_real_ssim)
 
+    # Compute channel-wise metrics
+    (diffs_da_real_mse_channels, diffs_noda_real_mse_channels,
+    diffs_da_real_rrmse_channels, diffs_noda_real_rrmse_channels,
+    diffs_da_real_ssim_channels, diffs_noda_real_ssim_channels,
+    diffs_da_real_mse, diffs_noda_real_mse,
+    diffs_da_real_rrmse, diffs_noda_real_rrmse,
+    diffs_da_real_ssim, diffs_noda_real_ssim) = compute_channel_wise_metrics()
 
-    def plot_channel_wise_metrics(diffs_da_real_mse_channels, diffs_noda_real_mse_channels,
-                                diffs_da_real_rrmse_channels, diffs_noda_real_rrmse_channels,
-                                diffs_da_real_ssim_channels, diffs_noda_real_ssim_channels,
-                                start_da_end_idxs, time_obs, model_name):
-        """Plot channel-wise comparison metrics in a 5x3 grid"""
-        step_idxs = list(range(start_da_end_idxs[0] + 1, start_da_end_idxs[-1] + 2))
-        channel_names = ['Temperature', 'U_wind', 'V_wind', 'Humidity', 'Pressure']
+    # Print sample metrics
+    da_idxs = [10, 20, 30]
+    for idx in da_idxs:
+        if idx < len(diffs_da_real_mse):
+            print(f"\nMetrics at index {idx}:")
+            print(f"  MSE - No DA: {diffs_noda_real_mse[idx]:.6f}, 4D-Var: {diffs_da_real_mse[idx]:.6f}")
+            print(f"  RRMSE - No DA: {diffs_noda_real_rrmse[idx]:.6f}, 4D-Var: {diffs_da_real_rrmse[idx]:.6f}")
+            print(f"  SSIM - No DA: {diffs_noda_real_ssim[idx]:.6f}, 4D-Var: {diffs_da_real_ssim[idx]:.6f}")
 
-        # Create 5x3 subplot grid
-        fig, axes = plt.subplots(5, 3, figsize=(18, 20))
-
+    # Save results
+    def save_channel_wise_results():
+        """Save each channel's results separately and also save overall results"""
+        
+        channel_names = ['Geopotential', 'Temperature', 'Humidity', 'U_wind', 'V_wind']
+        
         for c in range(5):
-            channel_key = f'channel_{c}'
+            channel_name = channel_names[c]
+            channel_data = {
+                'diffs_da_real_mse': diffs_da_real_mse_channels[f'channel_{c}'],
+                'diffs_noda_real_mse': diffs_noda_real_mse_channels[f'channel_{c}'],
+                'diffs_da_real_rrmse': diffs_da_real_rrmse_channels[f'channel_{c}'],
+                'diffs_noda_real_rrmse': diffs_noda_real_rrmse_channels[f'channel_{c}'],
+                'diffs_da_real_ssim': diffs_da_real_ssim_channels[f'channel_{c}'],
+                'diffs_noda_real_ssim': diffs_noda_real_ssim_channels[f'channel_{c}'],
+                'channel_name': channel_name,
+                'channel_index': c
+            }
             
-            # MSE plot
-            axes[c, 0].plot(step_idxs, diffs_da_real_mse_channels[channel_key], 
-                            color="#e377c2", label="4D-Var", linewidth=2)
-            axes[c, 0].plot(step_idxs, diffs_noda_real_mse_channels[channel_key], 
-                            color="#1f77b4", label="No DA", linewidth=2)
-            axes[c, 0].set_title(f'{channel_names[c]} - MSE', fontsize=12, fontweight='bold')
-            axes[c, 0].set_ylabel('MSE', fontsize=10)
-            axes[c, 0].grid(True, alpha=0.3)
-            axes[c, 0].legend(fontsize=9)
-            
-            # RRMSE plot
-            axes[c, 1].plot(step_idxs, diffs_da_real_rrmse_channels[channel_key], 
-                            color="#e377c2", label="4D-Var", linewidth=2)
-            axes[c, 1].plot(step_idxs, diffs_noda_real_rrmse_channels[channel_key], 
-                            color="#1f77b4", label="No DA", linewidth=2)
-            axes[c, 1].set_title(f'{channel_names[c]} - RRMSE', fontsize=12, fontweight='bold')
-            axes[c, 1].set_ylabel('RRMSE', fontsize=10)
-            axes[c, 1].grid(True, alpha=0.3)
-            axes[c, 1].legend(fontsize=9)
-            
-            # SSIM plot
-            axes[c, 2].plot(step_idxs, diffs_da_real_ssim_channels[channel_key], 
-                            color="#e377c2", label="4D-Var", linewidth=2)
-            axes[c, 2].plot(step_idxs, diffs_noda_real_ssim_channels[channel_key], 
-                            color="#1f77b4", label="No DA", linewidth=2)
-            axes[c, 2].set_title(f'{channel_names[c]} - SSIM', fontsize=12, fontweight='bold')
-            axes[c, 2].set_ylabel('SSIM', fontsize=10)
-            axes[c, 2].grid(True, alpha=0.3)
-            axes[c, 2].legend(fontsize=9)
-            
-            # Add observation time lines to all subplots in this row
-            for col in range(3):
-                for x in time_obs:
-                    axes[c, col].axvline(x=x+1, color="k", linestyle="--", alpha=0.7, linewidth=1)
-
-        # Set x-labels only for bottom row
-        for col in range(3):
-            axes[4, col].set_xlabel('Step Index', fontsize=10)
-
-        # Adjust layout
-        plt.tight_layout(pad=2.0)
-
-        # Save the figure
-        metrics_path = f'../../../../results/{model_name}/DA/era5_channel_wise_metrics_comparison.png'
-        os.makedirs(os.path.dirname(metrics_path), exist_ok=True)
-        plt.savefig(metrics_path, dpi=300, bbox_inches='tight')
-        plt.close()
-        print(f"Channel-wise metrics plot saved to {metrics_path}")
-
-
-    # Modified save section
-    def save_channel_wise_results(diffs_da_real_mse_channels, diffs_noda_real_mse_channels,
-                                diffs_da_real_rrmse_channels, diffs_noda_real_rrmse_channels,
-                                diffs_da_real_ssim_channels, diffs_noda_real_ssim_channels,
-                                diffs_da_real_mse, diffs_noda_real_mse,
-                                diffs_da_real_rrmse, diffs_noda_real_rrmse,
-                                diffs_da_real_ssim, diffs_noda_real_ssim,
-                                model_name):
-        """Save both channel-wise and overall results"""
-
-        # Save channel-wise results
+            channel_path = f'../../../../results/{model_name}/DA/era5_{channel_name.lower()}_comp_data.pkl'
+            os.makedirs(os.path.dirname(channel_path), exist_ok=True)
+            with open(channel_path, 'wb') as f:
+                pickle.dump(channel_data, f)
+            print(f"{channel_name} channel results saved to {channel_path}")
+        
         channel_results_data = {
             'diffs_da_real_mse_channels': diffs_da_real_mse_channels,
             'diffs_noda_real_mse_channels': diffs_noda_real_mse_channels,
@@ -617,10 +602,16 @@ def run_data_assimilation(
             'diffs_noda_real_rrmse_channels': diffs_noda_real_rrmse_channels,
             'diffs_da_real_ssim_channels': diffs_da_real_ssim_channels,
             'diffs_noda_real_ssim_channels': diffs_noda_real_ssim_channels,
-            'channel_names': ['Temperature', 'U_wind', 'V_wind', 'Humidity', 'Pressure']
+            'channel_names': channel_names
         }
+        
+        channel_results_path = f'../../../../results/{model_name}/DA/era5_channel_wise_comp_data.pkl'
+        os.makedirs(os.path.dirname(channel_results_path), exist_ok=True)
+        with open(channel_results_path, 'wb') as f:
+            pickle.dump(channel_results_data, f)
+        print(f"All channels summary saved to {channel_results_path}")
 
-        # Save overall results (backward compatibility)
+        # 3. 保存总体平均结果
         overall_results_data = {
             'diffs_da_real_mse': diffs_da_real_mse,
             'diffs_noda_real_mse': diffs_noda_real_mse,
@@ -630,53 +621,90 @@ def run_data_assimilation(
             'diffs_noda_real_ssim': diffs_noda_real_ssim
         }
 
-        # Save channel-wise data
-        channel_results_path = f'../../../../results/{model_name}/DA/era5_channel_wise_comp_data.pkl'
-        os.makedirs(os.path.dirname(channel_results_path), exist_ok=True)
-        with open(channel_results_path, 'wb') as f:
-            pickle.dump(channel_results_data, f)
-        print(f"Channel-wise results saved to {channel_results_path}")
-
-        # Save overall data
         overall_results_path = f'../../../../results/{model_name}/DA/era5_comp_data.pkl'
         with open(overall_results_path, 'wb') as f:
             pickle.dump(overall_results_data, f)
         print(f"Overall results saved to {overall_results_path}")
 
-    # Compute channel-wise metrics
-    (diffs_da_real_mse_channels, diffs_noda_real_mse_channels,
-    diffs_da_real_rrmse_channels, diffs_noda_real_rrmse_channels,
-    diffs_da_real_ssim_channels, diffs_noda_real_ssim_channels,
-    diffs_da_real_mse, diffs_noda_real_mse,
-    diffs_da_real_rrmse, diffs_noda_real_rrmse,
-    diffs_da_real_ssim, diffs_noda_real_ssim) = compute_channel_wise_metrics()
-
-    # Print some sample metrics
-    print(f"DA MSE (overall) at step {len(diffs_da_real_mse)//2}: {diffs_da_real_mse[len(diffs_da_real_mse)//2]}")
-    print(f"No DA MSE (overall) at step {len(diffs_noda_real_mse)//2}: {diffs_noda_real_mse[len(diffs_noda_real_mse)//2]}")
-
-    # Save results
-    save_channel_wise_results(diffs_da_real_mse_channels, diffs_noda_real_mse_channels,
-                            diffs_da_real_rrmse_channels, diffs_noda_real_rrmse_channels,
-                            diffs_da_real_ssim_channels, diffs_noda_real_ssim_channels,
-                            diffs_da_real_mse, diffs_noda_real_mse,
-                            diffs_da_real_rrmse, diffs_noda_real_rrmse,
-                            diffs_da_real_ssim, diffs_noda_real_ssim,
-                            model_name)
+    save_channel_wise_results()
 
     # Plot channel-wise metrics
     plot_channel_wise_metrics(diffs_da_real_mse_channels, diffs_noda_real_mse_channels,
                             diffs_da_real_rrmse_channels, diffs_noda_real_rrmse_channels,
                             diffs_da_real_ssim_channels, diffs_noda_real_ssim_channels,
                             start_da_end_idxs, time_obs, model_name)
-    
-    # Plot metrics
+
+    # Plot overall metrics
     plot_metrics(diffs_da_real_mse, diffs_noda_real_mse,
                 diffs_da_real_rrmse, diffs_noda_real_rrmse,
                 diffs_da_real_ssim, diffs_noda_real_ssim,
                 start_da_end_idxs, time_obs, model_name)
-    
+
     print("\nData assimilation completed!")
+
+
+def plot_channel_wise_metrics(diffs_da_real_mse_channels, diffs_noda_real_mse_channels,
+                            diffs_da_real_rrmse_channels, diffs_noda_real_rrmse_channels,
+                            diffs_da_real_ssim_channels, diffs_noda_real_ssim_channels,
+                            start_da_end_idxs, time_obs, model_name):
+    """Plot channel-wise comparison metrics in a 5x3 grid"""
+    step_idxs = list(range(start_da_end_idxs[0] + 1, start_da_end_idxs[-1] + 2))
+    channel_names = ['Temperature', 'U_wind', 'V_wind', 'Humidity', 'Pressure']
+
+    # Create 5x3 subplot grid
+    fig, axes = plt.subplots(5, 3, figsize=(18, 20))
+
+    for c in range(5):
+        channel_key = f'channel_{c}'
+        
+        # MSE plot
+        axes[c, 0].plot(step_idxs, diffs_da_real_mse_channels[channel_key], 
+                        color="#e377c2", label="4D-Var", linewidth=2)
+        axes[c, 0].plot(step_idxs, diffs_noda_real_mse_channels[channel_key], 
+                        color="#1f77b4", label="No DA", linewidth=2)
+        axes[c, 0].set_title(f'{channel_names[c]} - MSE', fontsize=12, fontweight='bold')
+        axes[c, 0].set_ylabel('MSE', fontsize=10)
+        axes[c, 0].grid(True, alpha=0.3)
+        axes[c, 0].legend(fontsize=9)
+        
+        # RRMSE plot
+        axes[c, 1].plot(step_idxs, diffs_da_real_rrmse_channels[channel_key], 
+                        color="#e377c2", label="4D-Var", linewidth=2)
+        axes[c, 1].plot(step_idxs, diffs_noda_real_rrmse_channels[channel_key], 
+                        color="#1f77b4", label="No DA", linewidth=2)
+        axes[c, 1].set_title(f'{channel_names[c]} - RRMSE', fontsize=12, fontweight='bold')
+        axes[c, 1].set_ylabel('RRMSE', fontsize=10)
+        axes[c, 1].grid(True, alpha=0.3)
+        axes[c, 1].legend(fontsize=9)
+        
+        # SSIM plot
+        axes[c, 2].plot(step_idxs, diffs_da_real_ssim_channels[channel_key], 
+                        color="#e377c2", label="4D-Var", linewidth=2)
+        axes[c, 2].plot(step_idxs, diffs_noda_real_ssim_channels[channel_key], 
+                        color="#1f77b4", label="No DA", linewidth=2)
+        axes[c, 2].set_title(f'{channel_names[c]} - SSIM', fontsize=12, fontweight='bold')
+        axes[c, 2].set_ylabel('SSIM', fontsize=10)
+        axes[c, 2].grid(True, alpha=0.3)
+        axes[c, 2].legend(fontsize=9)
+        
+        # Add observation time lines to all subplots in this row
+        for col in range(3):
+            for x in time_obs:
+                axes[c, col].axvline(x=x+1, color="k", linestyle="--", alpha=0.7, linewidth=1)
+
+    # Set x-labels only for bottom row
+    for col in range(3):
+        axes[4, col].set_xlabel('Step Index', fontsize=10)
+
+    # Adjust layout
+    plt.tight_layout(pad=2.0)
+
+    # Save the figure
+    metrics_path = f'../../../../results/{model_name}/DA/era5_channel_wise_metrics_comparison.png'
+    os.makedirs(os.path.dirname(metrics_path), exist_ok=True)
+    plt.savefig(metrics_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"Channel-wise metrics plot saved to {metrics_path}")
 
 
 def plot_metrics(diffs_da_real_mse, diffs_noda_real_mse,

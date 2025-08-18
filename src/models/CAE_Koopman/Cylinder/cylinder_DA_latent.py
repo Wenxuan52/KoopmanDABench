@@ -346,7 +346,7 @@ def plot_latent_space_tsne_3d(gt_latents, no_da_latents, da_latents,
     ax.set_title(f'{model_display_name}', fontsize=16, fontweight='bold', pad=20)
     
     # Legend
-    legend = ax.legend(loc='upper left', frameon=True, shadow=True, fontsize=11, title='Method', title_fontsize=12,
+    legend = ax.legend(loc='upper left', frameon=True, shadow=True, fontsize=11, title_fontsize=12,
                        bbox_to_anchor=(0.02, 0.98))
     legend.get_frame().set_facecolor('white')
     legend.get_frame().set_alpha(0.95)

@@ -9,7 +9,7 @@ current_directory = os.getcwd()
 src_directory = os.path.abspath(os.path.join(current_directory, "..", ".."))
 sys.path.append(src_directory)
 
-from src.utils.Dataset import CylinderDynamicsDataset
+from src.utils.Dataset import DamDynamicsDataset
 
 def plot_comparisons(raw_data, dmd_data_uv, cae_dmd_data_uv, cae_koopman_data_uv, cae_linear_data_uv, cae_weaklinear_data_uv, cae_mlp_data_uv, time_indices=[1, 4, 7, 10], save_dir="figures"):
     os.makedirs(save_dir, exist_ok=True)
@@ -35,19 +35,19 @@ def plot_comparisons(raw_data, dmd_data_uv, cae_dmd_data_uv, cae_koopman_data_uv
         for col, t in enumerate(time_indices):
             img = datas[row][t, 0]
             ax = axes1[row, col]
-            im = ax.imshow(img, cmap='viridis', vmin=vmin_pred, vmax=vmax_pred)
+            im = ax.imshow(img, cmap='viridis', vmin=vmin_pred, vmax=vmax_pred, origin='lower')
             ax.axis('off')
             if row == 0:
-                ax.set_title(f"t={t+700}", fontsize=20, fontweight='bold')
+                ax.set_title(f"t={t+50}", fontsize=20, fontweight='bold')
             if col == 0:
                 ax.text(-0.1, 0.5, f'{titles[row]}', fontsize=18, fontweight='bold', 
                        transform=ax.transAxes, rotation=90, va='center', ha='right')
             fig1.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
-    fig1.suptitle("CFD Bench Cylinder flow Comparison", fontsize=30, fontweight='bold')
+    fig1.suptitle("CFD Bench Dam flow Comparison", fontsize=30, fontweight='bold')
     plt.tight_layout()
     plt.subplots_adjust(top=0.94)
-    fig1.savefig(os.path.join(save_dir, "cyl_comparison.png"))
+    fig1.savefig(os.path.join(save_dir, "dam_comparison.png"))
     plt.close(fig1)
 
     # Second figure: Error comparison
@@ -67,29 +67,29 @@ def plot_comparisons(raw_data, dmd_data_uv, cae_dmd_data_uv, cae_koopman_data_uv
         # First row: Groundtruth
         img_raw = raw[t, 0]
         ax = axes2[0, col]
-        im = ax.imshow(img_raw, cmap='viridis', vmin=vmin_pred, vmax=vmax_pred)
+        im = ax.imshow(img_raw, cmap='viridis', vmin=vmin_pred, vmax=vmax_pred, origin='lower')
         ax.axis('off')
         if col == 0:
             ax.text(-0.1, 0.5, 'Groundtruth', fontsize=18, fontweight='bold', 
                    transform=ax.transAxes, rotation=90, va='center', ha='right')
-        ax.set_title(f"t={t+700}", fontsize=18)
+        ax.set_title(f"t={t+50}", fontsize=18)
         fig2.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
         # Remaining rows: Error plots
         for i, pred in enumerate([dmd, cae_dmd, cae_koopman, cae_linear, cae_weaklinear, cae_mlp], start=1):
             err = np.abs(pred[t, 0] - img_raw)
             ax = axes2[i, col]
-            im_err = ax.imshow(err, cmap='magma', vmin=vmin_err, vmax=vmax_err)
+            im_err = ax.imshow(err, cmap='magma', vmin=vmin_err, vmax=vmax_err, origin='lower')
             ax.axis('off')
             if col == 0:
                 ax.text(-0.1, 0.5, f"Error {titles[i]}", fontsize=18, fontweight='bold', 
                        transform=ax.transAxes, rotation=90, va='center', ha='right')
             fig2.colorbar(im_err, ax=ax, fraction=0.046, pad=0.04)
 
-    fig2.suptitle("CFD Bench Cylinder flow Error Comparison", fontsize=30, fontweight='bold')
+    fig2.suptitle("CFD Bench Dam flow Error Comparison", fontsize=30, fontweight='bold')
     plt.tight_layout()
     plt.subplots_adjust(top=0.94)
-    fig2.savefig(os.path.join(save_dir, "cyl_error.png"))
+    fig2.savefig(os.path.join(save_dir, "dam_error.png"))
     plt.close(fig2)
 
 def prepare_dmd_data(data, device):
@@ -110,30 +110,26 @@ if __name__ == '__main__':
     print(f"[INFO] Using device: {device}")
     
     fig_save_path = '../../results/Comparison/figures/'
-    start_T = 700
-    prediction_step = 300
-    val_idx = 3
+    start_T = 50
+    prediction_step = 50
+    val_idx = -1
     
     # Load dataset
     print("[INFO] Loading datasets...")
-    cyl_train_dataset = CylinderDynamicsDataset(
-        data_path="../../data/cylinder/cylinder_train_data.npy",
-        seq_length=12,
-        mean=None,
-        std=None
-    )
+    dam_train_dataset = DamDynamicsDataset(data_path="../../data/dam/dam_train_data.npy",
+                seq_length = 12,
+                mean=None,
+                std=None)
     
-    cyl_val_dataset = CylinderDynamicsDataset(
-        data_path="../../data/cylinder/cylinder_val_data.npy",
-        seq_length=12,
-        mean=cyl_train_dataset.mean,
-        std=cyl_train_dataset.std
-    )
+    dam_val_dataset = DamDynamicsDataset(data_path="../../data/dam/dam_val_data.npy",
+                seq_length = 12,
+                mean=None,
+                std=None)
     
-    denorm = cyl_val_dataset.denormalizer()
+    denorm = dam_val_dataset.denormalizer()
 
     # Prepare groundtruth data
-    groundtruth = cyl_val_dataset.data[val_idx, start_T:start_T + prediction_step, ...]
+    groundtruth = dam_val_dataset.data[val_idx, start_T:start_T + prediction_step, ...]
     groundtruth = torch.tensor(groundtruth, dtype=torch.float32)
     
     # Convert to velocity magnitude
@@ -141,17 +137,17 @@ if __name__ == '__main__':
     raw_data_uv = raw_data_uv.unsqueeze(1)
     print(f"[INFO] Groundtruth shape: {raw_data_uv.shape}")
 
-    dmd_data_uv = np.load('../../results/DMD/figures/cyl_rollout.npy')
+    dmd_data_uv = np.load('../../results/DMD/figures/dam_rollout.npy')
 
-    cae_dmd_data_uv = np.load('../../results/CAE_DMD/figures/cyl_rollout.npy')
+    cae_dmd_data_uv = np.load('../../results/CAE_DMD/figures/dam_rollout.npy')
 
-    cae_koopman_data_uv = np.load('../../results/CAE_Koopman/figures/cyl_rollout.npy')
+    cae_koopman_data_uv = np.load('../../results/CAE_Koopman/figures/dam_rollout.npy')
 
-    cae_linear_data_uv = np.load('../../results/CAE_Linear/figures/cyl_rollout.npy')
+    cae_linear_data_uv = np.load('../../results/CAE_Linear/figures/dam_rollout.npy')
 
-    cae_weaklinear_data_uv = np.load('../../results/CAE_Weaklinear/figures/cyl_rollout.npy')
+    cae_weaklinear_data_uv = np.load('../../results/CAE_Weaklinear/figures/dam_rollout.npy')
 
-    cae_mlp_data_uv = np.load('../../results/CAE_MLP/figures/cyl_rollout.npy')
+    cae_mlp_data_uv = np.load('../../results/CAE_MLP/figures/dam_rollout.npy')
 
     # print(dmd_data_uv.shape)
     # print(cae_dmd_data_uv.shape)
@@ -159,4 +155,4 @@ if __name__ == '__main__':
     # print(cae_weaklinear_data_uv.shape)
 
     plot_comparisons(raw_data_uv, dmd_data_uv, cae_dmd_data_uv, cae_koopman_data_uv, cae_linear_data_uv, cae_weaklinear_data_uv, cae_mlp_data_uv, 
-                    time_indices=[1, 50, 100, 150, 200, 250, 299], save_dir=fig_save_path)
+                    time_indices=[1, 5, 10, 20, 30, 40, 49], save_dir=fig_save_path)

@@ -353,8 +353,8 @@ def run_data_assimilation(
         .set_observation_covariance_matrix(R)
         .set_observations(sparse_y_data)
         .set_optimizer_cls(torch.optim.Adam)
-        .set_optimizer_args({"lr": 0.05})
-        .set_max_iterations(5000)
+        .set_optimizer_args({"lr": 0.01})
+        .set_max_iterations(500)
         .set_early_stop(early_stop_config)
         .set_algorithm(torchda.Algorithms.Var4D)
         .set_device(torchda.Device.GPU if device == "cuda" else torchda.Device.CPU)
@@ -435,9 +435,10 @@ def run_data_assimilation(
     
     # Compute metrics
     print("\nComputing metrics...")
+
     def compute_channel_wise_metrics():
         """Compute metrics for each channel separately"""
-        channel_names = ['Temperature', 'U_wind', 'V_wind', 'Humidity', 'Pressure']
+        channel_names = ['Geopotential', 'Temperature', 'Humidity', 'U_wind', 'V_wind']
 
         diffs_da_real_mse_channels = {f'channel_{c}': [] for c in range(5)}
         diffs_noda_real_mse_channels = {f'channel_{c}': [] for c in range(5)}
@@ -543,11 +544,11 @@ def run_data_assimilation(
 
     # Compute channel-wise metrics
     (diffs_da_real_mse_channels, diffs_noda_real_mse_channels,
-     diffs_da_real_rrmse_channels, diffs_noda_real_rrmse_channels,
-     diffs_da_real_ssim_channels, diffs_noda_real_ssim_channels,
-     diffs_da_real_mse, diffs_noda_real_mse,
-     diffs_da_real_rrmse, diffs_noda_real_rrmse,
-     diffs_da_real_ssim, diffs_noda_real_ssim) = compute_channel_wise_metrics()
+    diffs_da_real_rrmse_channels, diffs_noda_real_rrmse_channels,
+    diffs_da_real_ssim_channels, diffs_noda_real_ssim_channels,
+    diffs_da_real_mse, diffs_noda_real_mse,
+    diffs_da_real_rrmse, diffs_noda_real_rrmse,
+    diffs_da_real_ssim, diffs_noda_real_ssim) = compute_channel_wise_metrics()
 
     # Print sample metrics
     da_idxs = [10, 20, 30]
@@ -560,9 +561,29 @@ def run_data_assimilation(
 
     # Save results
     def save_channel_wise_results():
-        """Save both channel-wise and overall results"""
+        """Save each channel's results separately and also save overall results"""
         
-        # Save channel-wise results
+        channel_names = ['Geopotential', 'Temperature', 'Humidity', 'U_wind', 'V_wind']
+        
+        for c in range(5):
+            channel_name = channel_names[c]
+            channel_data = {
+                'diffs_da_real_mse': diffs_da_real_mse_channels[f'channel_{c}'],
+                'diffs_noda_real_mse': diffs_noda_real_mse_channels[f'channel_{c}'],
+                'diffs_da_real_rrmse': diffs_da_real_rrmse_channels[f'channel_{c}'],
+                'diffs_noda_real_rrmse': diffs_noda_real_rrmse_channels[f'channel_{c}'],
+                'diffs_da_real_ssim': diffs_da_real_ssim_channels[f'channel_{c}'],
+                'diffs_noda_real_ssim': diffs_noda_real_ssim_channels[f'channel_{c}'],
+                'channel_name': channel_name,
+                'channel_index': c
+            }
+            
+            channel_path = f'../../../../results/{model_name}/DA/era5_{channel_name.lower()}_comp_data.pkl'
+            os.makedirs(os.path.dirname(channel_path), exist_ok=True)
+            with open(channel_path, 'wb') as f:
+                pickle.dump(channel_data, f)
+            print(f"{channel_name} channel results saved to {channel_path}")
+        
         channel_results_data = {
             'diffs_da_real_mse_channels': diffs_da_real_mse_channels,
             'diffs_noda_real_mse_channels': diffs_noda_real_mse_channels,
@@ -570,10 +591,16 @@ def run_data_assimilation(
             'diffs_noda_real_rrmse_channels': diffs_noda_real_rrmse_channels,
             'diffs_da_real_ssim_channels': diffs_da_real_ssim_channels,
             'diffs_noda_real_ssim_channels': diffs_noda_real_ssim_channels,
-            'channel_names': ['Temperature', 'U_wind', 'V_wind', 'Humidity', 'Pressure']
+            'channel_names': channel_names
         }
+        
+        channel_results_path = f'../../../../results/{model_name}/DA/era5_channel_wise_comp_data.pkl'
+        os.makedirs(os.path.dirname(channel_results_path), exist_ok=True)
+        with open(channel_results_path, 'wb') as f:
+            pickle.dump(channel_results_data, f)
+        print(f"All channels summary saved to {channel_results_path}")
 
-        # Save overall results
+        # 3. 保存总体平均结果
         overall_results_data = {
             'diffs_da_real_mse': diffs_da_real_mse,
             'diffs_noda_real_mse': diffs_noda_real_mse,
@@ -583,33 +610,25 @@ def run_data_assimilation(
             'diffs_noda_real_ssim': diffs_noda_real_ssim
         }
 
-        # Save channel-wise data
-        channel_results_path = f'../../../../results/{model_name}/DA/era5_channel_wise_comp_data.pkl'
-        os.makedirs(os.path.dirname(channel_results_path), exist_ok=True)
-        with open(channel_results_path, 'wb') as f:
-            pickle.dump(channel_results_data, f)
-        print(f"Channel-wise results saved to {channel_results_path}")
-
-        # Save overall data
         overall_results_path = f'../../../../results/{model_name}/DA/era5_comp_data.pkl'
         with open(overall_results_path, 'wb') as f:
             pickle.dump(overall_results_data, f)
         print(f"Overall results saved to {overall_results_path}")
 
     save_channel_wise_results()
-    
+
     # Plot channel-wise metrics
     plot_channel_wise_metrics(diffs_da_real_mse_channels, diffs_noda_real_mse_channels,
                             diffs_da_real_rrmse_channels, diffs_noda_real_rrmse_channels,
                             diffs_da_real_ssim_channels, diffs_noda_real_ssim_channels,
                             start_da_end_idxs, time_obs, model_name)
-    
+
     # Plot overall metrics
     plot_metrics(diffs_da_real_mse, diffs_noda_real_mse,
                 diffs_da_real_rrmse, diffs_noda_real_rrmse,
                 diffs_da_real_ssim, diffs_noda_real_ssim,
                 start_da_end_idxs, time_obs, model_name)
-    
+
     print("\nData assimilation completed!")
 
 
