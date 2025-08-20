@@ -10,7 +10,7 @@ img4 = mpimg.imread('../../results/CAE_Linear/DA/latent_space_3d_tsne.png')
 img5 = mpimg.imread('../../results/CAE_Weaklinear/DA/latent_space_3d_tsne.png')
 img6 = mpimg.imread('../../results/CAE_MLP/DA/latent_space_3d_tsne.png')
 
-crop = 480
+crop = 480 # 90
 pad = 5
 size = 6
 

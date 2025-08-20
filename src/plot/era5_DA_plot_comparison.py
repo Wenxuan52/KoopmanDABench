@@ -13,8 +13,8 @@ if __name__ == '__main__':
     os.makedirs(fig_save_path, exist_ok=True)
     
     model_paths = [
-        '../../results/CAE_DMD/DA/era5_channel_wise_comp_data.pkl',
         '../../results/DMD/DA/era5_channel_wise_comp_data.pkl',
+        '../../results/CAE_DMD/DA/era5_channel_wise_comp_data.pkl',
         '../../results/CAE_Koopman/DA/era5_channel_wise_comp_data.pkl',
         '../../results/CAE_Linear/DA/era5_channel_wise_comp_data.pkl',
         '../../results/CAE_Weaklinear/DA/era5_channel_wise_comp_data.pkl',
