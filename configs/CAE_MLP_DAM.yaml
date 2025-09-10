@@ -1,9 +1,9 @@
-save_folder: '../../../../results/CAE_MLP/Dam/model_weights'
-seq_length: 10
+save_folder: '../../../../results/CAE_MLP/Dam/model_weights_L512'
+seq_length: 12
 num_epochs: 500
 decay_step: 20
-batch_size: 12
+batch_size: 128
 learning_rate: 0.001
-decay_rate: 0.9
-lamb: 1.0
+decay_rate: 0.8
+lamb: 0.1
 patience: 50

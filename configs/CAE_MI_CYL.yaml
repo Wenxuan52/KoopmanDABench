@@ -1,0 +1,13 @@
+save_folder: '../../../../results/CAE_MI/Cylinder/cylinder_model_weights_L512'
+seq_length: 16
+num_epochs: 300
+decay_step: 20
+batch_size: 16
+learning_rate: 0.001
+decay_rate: 0.8
+lamb: 0.10
+alpha: 2.0
+beta: 0.01
+mi_k: 3
+mi_temperature: 0.07
+patience: 50

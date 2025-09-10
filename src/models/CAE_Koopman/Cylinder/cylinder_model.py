@@ -8,7 +8,6 @@ from base import *
 
 # State dimension = 2 channels, 64x64 resolution
 CYLINDER_settings = {"obs_dim": [2, 64, 64], 
-                    "history_len": 10, 
                     "state_dim": [2, 64, 64], 
                     "seq_length": 12,
                     "obs_feature_dim": [512, 128, 64, 32, 16, 8], 
@@ -19,7 +18,7 @@ CYLINDER_settings = {"obs_dim": [2, 64, 64],
 # -> Conv3x3 -> Pool -> 8x8 -> Conv3x3 -> Pool -> 4x4 -> Conv3x3 -> 4x4
 # Final size: 256 channels * 4 * 4 = 4096
 # CYLINDER_settings["state_feature_dim"] = [4096, 512]
-CYLINDER_settings["state_feature_dim"] = [4096, 512]
+CYLINDER_settings["state_feature_dim"] = [4096, 5]
 
 '''
 ================================

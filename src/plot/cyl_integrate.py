@@ -36,4 +36,4 @@ axes[1, 2].axis('off')
 
 plt.subplots_adjust(wspace=0.05, hspace=0.05)
 
-plt.savefig(f'{fig_save_path}cyl_4dvar_integrate.png', dpi=300, bbox_inches='tight')
+plt.savefig(f'{fig_save_path}cyl_4dvar_integrate.png', dpi=500, bbox_inches='tight')

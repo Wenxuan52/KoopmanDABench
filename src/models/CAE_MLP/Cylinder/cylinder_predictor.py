@@ -377,7 +377,7 @@ if __name__ == '__main__':
     # print(de_rollout_uv.min())
     # print(de_rollout_uv.max())
 
-    np.save(fig_save_path + 'cyl_rollout.npy', de_rollout_uv)
+    np.save(fig_save_path + 'cyl_rollout_new.npy', de_rollout_uv)
 
     inference_stats['config'] = {
         'prediction_step': prediction_step,

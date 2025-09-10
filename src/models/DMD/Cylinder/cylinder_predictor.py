@@ -177,7 +177,7 @@ if __name__ == '__main__':
     
     fig_save_path = '../../../../results/DMD/figures/'
     start_T = 700
-    prediction_step = 300
+    prediction_step = 10
     val_idx = 3
     
     # Load dataset
@@ -342,11 +342,11 @@ if __name__ == '__main__':
     # Plot comparisons
     print("\n[INFO] Generating plots...")
     
-    plot_comparisons(raw_data_uv, de_onestep_uv, de_rollout_uv,
-                    time_indices=[1, 50, 100, 200, 299], save_dir=fig_save_path)
-
     # plot_comparisons(raw_data_uv, de_onestep_uv, de_rollout_uv,
-    #             time_indices=[1, 5, 10, 15, 20], save_dir=fig_save_path)
+    #                 time_indices=[1, 50, 100, 200, 299], save_dir=fig_save_path)
+
+    plot_comparisons(raw_data_uv, de_onestep_uv, de_rollout_uv,
+                time_indices=[1, 2, 4, 7, 9], save_dir=fig_save_path)
     
     # Compute metrics
     print("\n[INFO] Computing metrics...")

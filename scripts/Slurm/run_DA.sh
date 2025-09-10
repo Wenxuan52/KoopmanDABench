@@ -7,14 +7,14 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=40G
 #SBATCH --time=00:30:00
-#SBATCH -e run_DA1.err
-#SBATCH -o run_DA1.out
+#SBATCH -e run_DA.err
+#SBATCH -o run_DA.out
 
 source /scratch_dgxl/wy524/miniconda3/etc/profile.d/conda.sh
 conda activate irp-env
 
 # Cylinder / Dam / ERA5
 # DMD / CAE_DMD / CAE_Koopman / CAE_Linear / CAE_Weaklinear / CAE_MLP
-cd src/models/DMD/ERA5
+cd src/models/DMD/Cylinder
 
-python era5_DA.py
+python cylinder_DA.py

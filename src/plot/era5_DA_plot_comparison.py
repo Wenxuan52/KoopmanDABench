@@ -7,7 +7,7 @@ from matplotlib.colors import to_rgba
 import os
 
 if __name__ == '__main__':
-    lw = 1.5
+    lw = 3.0
 
     fig_save_path = '../../results/Comparison/figures/'
     os.makedirs(fig_save_path, exist_ok=True)
@@ -23,10 +23,10 @@ if __name__ == '__main__':
 
     model_names = ['DMD', 'DMD ROM', 'Koopman ROM', 'Linear ROM', 'Weaklinear ROM', 'MLP ROM']
     
-    # Define colors and styles for each model
-    colors = ["#66c2a5", "#fc8d62", "#8da0cb", "#e78ac3", "#a6d854", "#ffd92f"]
-    line_styles = ['-', '--', '-.', ':', '-', '--']
-    markers = ['o', 's', '^', 'D', 'v', 'p']
+    # Define colors and styles for each model (expanded for 6 models)
+    colors = ["#66c2a5", "#fc8d62", "#8da0cb", "#e78ac3", "#a6d854", "#e6c229"]  # 6 colors
+    line_styles = ['-', '-', '-', '-', '-', '-']  # 6 line styles
+    markers = ['o', 's', '^', 'D', 'v', 'p']  # 6 markers
     
     channel_names = ['Geopotential', 'Temperature', 'Humidity', 'U_wind', 'V_wind']
     channel_labels = ['Geopotential', 'Temperature', 'Humidity', 'Wind (u)', 'Wind (v)']
@@ -70,7 +70,7 @@ if __name__ == '__main__':
             
             all_models_data[name] = {
                 'channels': model_data,
-                'color': colors[i % len(colors)],
+                'color': colors[i % len(colors)],  # Use modulo to handle more models
                 'linestyle': line_styles[i % len(line_styles)],
                 'marker': markers[i % len(markers)]
             }
@@ -111,74 +111,80 @@ if __name__ == '__main__':
         print(f"\nProcessing {ch_label} channel...")
         
         # Plot 1: Comprehensive comparison for 4D Var performance (1x4 layout)
-        fig, axes = plt.subplots(1, 4, figsize=(24, 6))
-        fig.suptitle(f'ERA5 {ch_label} - 4D VAR Performance Comparison', fontsize=20, fontweight='bold', y=1.02)
+        fig, axes = plt.subplots(1, 4, figsize=(26, 7))  # Increased figure height for legend
+        fig.suptitle(f'ERA5 {ch_label} 4D-Var Performance', fontsize=28, fontweight='bold', y=0.98)
         
         # MSE comparison (4D Var only)
         for name, data in all_models_data.items():
             axes[0].plot(time_steps_offset, data['channels'][ch_name]['da_mse'], 
                         color=data['color'], linestyle=data['linestyle'], 
-                        marker=data['marker'], label=name, linewidth=lw, markersize=2, alpha=0.8)
+                        marker=data['marker'], label=name, linewidth=lw, markersize=2, alpha=0.9)
         
         for da_time in da_times:
             axes[0].axvline(x=da_time, color='black', linestyle='--', alpha=0.8, linewidth=1.5)
-        axes[0].set_xlabel('Time Step', fontsize=12)
-        axes[0].set_ylabel('MSE', fontsize=12)
-        axes[0].set_title('4D Var - MSE', fontsize=14, fontweight='bold')
-        axes[0].legend(fontsize=10, loc='best')
+        axes[0].set_xlabel('Time Step', fontsize=16)
+        axes[0].set_ylabel('MSE', fontsize=16)
+        axes[0].set_title('MSE', fontsize=22, fontweight='bold')
         axes[0].grid(True, alpha=0.3)
+        axes[0].tick_params(labelsize=14)
         
         # RRMSE comparison (4D Var only)
         for name, data in all_models_data.items():
             axes[1].plot(time_steps_offset, data['channels'][ch_name]['da_rrmse'], 
                         color=data['color'], linestyle=data['linestyle'], 
-                        marker=data['marker'], label=name, linewidth=lw, markersize=2, alpha=0.8)
+                        marker=data['marker'], label=name, linewidth=lw, markersize=2, alpha=0.9)
         
         for da_time in da_times:
             axes[1].axvline(x=da_time, color='black', linestyle='--', alpha=0.8, linewidth=1.5)
-        axes[1].set_xlabel('Time Step', fontsize=12)
-        axes[1].set_ylabel('RRMSE', fontsize=12)
-        axes[1].set_title('4D Var - RRMSE', fontsize=14, fontweight='bold')
-        axes[1].legend(fontsize=10, loc='best')
+        axes[1].set_xlabel('Time Step', fontsize=16)
+        axes[1].set_ylabel('RRMSE', fontsize=16)
+        axes[1].set_title('RRMSE', fontsize=22, fontweight='bold')
         axes[1].grid(True, alpha=0.3)
+        axes[1].tick_params(labelsize=14)
         
         # SSIM comparison (4D Var only)
         for name, data in all_models_data.items():
             axes[2].plot(time_steps_offset, data['channels'][ch_name]['da_ssim'], 
                         color=data['color'], linestyle=data['linestyle'], 
-                        marker=data['marker'], label=name, linewidth=lw, markersize=2, alpha=0.8)
+                        marker=data['marker'], label=name, linewidth=lw, markersize=2, alpha=0.9)
         
         for da_time in da_times:
             axes[2].axvline(x=da_time, color='black', linestyle='--', alpha=0.8, linewidth=1.5)
-        axes[2].set_xlabel('Time Step', fontsize=12)
-        axes[2].set_ylabel('SSIM', fontsize=12)
-        axes[2].set_title('4D Var - SSIM', fontsize=14, fontweight='bold')
-        axes[2].legend(fontsize=10, loc='best')
+        axes[2].set_xlabel('Time Step', fontsize=16)
+        axes[2].set_ylabel('SSIM', fontsize=16)
+        axes[2].set_title('SSIM', fontsize=22, fontweight='bold')
         axes[2].grid(True, alpha=0.3)
+        axes[2].tick_params(labelsize=14)
         
         # Improvement ratio (4D Var / No DA)
         for name, data in all_models_data.items():
             mse_ratio = data['channels'][ch_name]['da_mse'] / data['channels'][ch_name]['noda_mse']
             axes[3].plot(time_steps_offset, mse_ratio, 
                         color=data['color'], linestyle=data['linestyle'], 
-                        marker=data['marker'], label=f'{name}', linewidth=lw, markersize=2, alpha=0.8)
+                        marker=data['marker'], label=f'{name}', linewidth=lw, markersize=2, alpha=0.9)
         
         for da_time in da_times:
             axes[3].axvline(x=da_time, color='black', linestyle='--', alpha=0.8, linewidth=1.5)
         axes[3].axhline(y=1, color='k', linestyle='--', alpha=0.5, label='Equal Performance')
-        axes[3].set_xlabel('Time Step', fontsize=12)
-        axes[3].set_ylabel('Ratio (4D Var / No DA)', fontsize=12)
-        axes[3].set_title('MSE Improvement Ratio', fontsize=14, fontweight='bold')
-        axes[3].legend(fontsize=10, loc='best')
+        axes[3].set_xlabel('Time Step', fontsize=16)
+        axes[3].set_ylabel('Ratio (4D Var / No DA)', fontsize=16)
+        axes[3].set_title('MSE Improvement Ratio', fontsize=22, fontweight='bold')
         axes[3].grid(True, alpha=0.3)
+        axes[3].tick_params(labelsize=14)
+        
+        # Add unified legend below all subplots
+        handles, labels = axes[0].get_legend_handles_labels()
+        fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, -0.05), 
+                   ncol=len(model_names), fontsize=24, frameon=True)
         
         plt.tight_layout()
-        plt.savefig(f'{fig_save_path}era5_{ch_name}_4dvar_comparison.png', dpi=300, bbox_inches='tight')
-        plt.close(fig)
+        plt.subplots_adjust(bottom=0.15)  # Make room for legend
+        plt.savefig(f'{fig_save_path}era5_{ch_name}_4dvar_comparison.png', dpi=100, bbox_inches='tight')
+        plt.show()
         
         # Plot 2: Average performance bar chart (1x3 layout)
-        fig, axes = plt.subplots(1, 3, figsize=(20, 7))
-        fig.suptitle(f'ERA5 {ch_label} - Average Performance Metrics Comparison', fontsize=18, fontweight='bold')
+        fig, axes = plt.subplots(1, 3, figsize=(22, 8))  # Increased figure size
+        fig.suptitle(f'ERA5 {ch_label} Average Performance Metrics Comparison', fontsize=22, fontweight='bold', y=0.98)
         
         metrics = ['MSE', 'RRMSE', 'SSIM']
         metric_keys = [('da_mse', 'noda_mse'), ('da_rrmse', 'noda_rrmse'), ('da_ssim', 'noda_ssim')]
@@ -198,22 +204,29 @@ if __name__ == '__main__':
             bars2 = axes[i].bar(x + width/2, noda_means, width, yerr=noda_stds, 
                                capsize=5, label='No DA', alpha=0.8, color='#F24236')
             
-            axes[i].set_xlabel('Models', fontsize=12)
-            axes[i].set_ylabel(f'{metric} Value', fontsize=12)
-            axes[i].set_title(f'{metric} Comparison', fontsize=14, fontweight='bold')
+            axes[i].set_xlabel('Models', fontsize=16)
+            axes[i].set_ylabel(f'{metric} Value', fontsize=16)
+            axes[i].set_title(f'{metric} Comparison', fontsize=18, fontweight='bold')
             axes[i].set_xticks(x)
-            axes[i].set_xticklabels(model_names_list, rotation=45, ha='right', fontsize=10)
-            axes[i].legend(fontsize=11)
+            axes[i].set_xticklabels(model_names_list, rotation=45, ha='right', fontsize=14)
             axes[i].grid(True, alpha=0.3)
+            axes[i].tick_params(labelsize=14)
+        
+        # Add unified legend for bar charts
+        fig.legend(['4D Var', 'No DA'], loc='lower center', bbox_to_anchor=(0.5, -0.05), 
+                   ncol=2, fontsize=16, frameon=True)
         
         plt.tight_layout()
-        plt.savefig(f'{fig_save_path}era5_{ch_name}_average_performance.png', dpi=300, bbox_inches='tight')
-        plt.close(fig)
+        plt.subplots_adjust(bottom=0.15)  # Make room for legend
+        plt.savefig(f'{fig_save_path}era5_{ch_name}_average_performance.png', dpi=100, bbox_inches='tight')
+        plt.show()
         
         # Plot 3: Improvement percentage comparison (1x3 layout)
+        # Focus on the first DA time frame (background field improvement)
         if da_times:
-            fig, axes = plt.subplots(1, 3, figsize=(20, 7))
-            fig.suptitle(f'ERA5 {ch_label} - 4D VAR Background Field Improvement Over No DA (%)\n(First DA Time Frame Analysis)', fontsize=18, fontweight='bold')
+            fig, axes = plt.subplots(1, 3, figsize=(22, 8))  # Increased figure size
+            fig.suptitle(f'ERA5 {ch_label} 4D VAR Background Field Improvement Over No DA (%)\n(First DA Time Frame Analysis)', 
+                         fontsize=20, fontweight='bold', y=0.98)
             
             # Find the index of first DA time
             first_da_index = da_times[0] - 1000  # Convert to array index
@@ -224,6 +237,7 @@ if __name__ == '__main__':
                     improvements = []
                     
                     for name in model_names_list:
+                        # Get values at the first DA time frame only
                         da_value = all_models_data[name]['channels'][ch_name][da_key][first_da_index]
                         noda_value = all_models_data[name]['channels'][ch_name][noda_key][first_da_index]
                         
@@ -238,28 +252,30 @@ if __name__ == '__main__':
                                       color=[all_models_data[name]['color'] for name in model_names_list],
                                       alpha=0.4, edgecolor='black', linewidth=1)
                     
-                    axes[i].set_xlabel('Models', fontsize=12)
-                    axes[i].set_ylabel('Improvement (%)', fontsize=12)
-                    axes[i].set_title(f'{metric} Background Field Improvement\n(t={da_times[0]})', fontsize=14, fontweight='bold')
+                    axes[i].set_xlabel('Models', fontsize=16)
+                    axes[i].set_ylabel('Improvement (%)', fontsize=16)
+                    axes[i].set_title(f'{metric} Background Field Improvement\n(t={da_times[0]})', fontsize=18, fontweight='bold')
                     axes[i].set_xticks(range(len(model_names_list)))
-                    axes[i].set_xticklabels(model_names_list, rotation=45, ha='right', fontsize=10)
+                    axes[i].set_xticklabels(model_names_list, rotation=45, ha='right', fontsize=14)
                     axes[i].grid(True, alpha=0.3)
                     axes[i].axhline(y=0, color='k', linestyle='-', alpha=0.3)
+                    axes[i].tick_params(labelsize=14)
                     
                     # Add value labels on bars
                     for bar, improvement in zip(bars, improvements):
                         height = bar.get_height()
                         axes[i].text(bar.get_x() + bar.get_width()/2., height + (0.5 if height > 0 else -1.5),
                                     f'{improvement:.1f}%', ha='center', va='bottom' if height > 0 else 'top',
-                                    fontsize=10, fontweight='bold')
+                                    fontsize=12, fontweight='bold')
                 
                 plt.tight_layout()
-                plt.savefig(f'{fig_save_path}era5_{ch_name}_background_field_improvement.png', dpi=300, bbox_inches='tight')
-                plt.close(fig)
+                plt.savefig(f'{fig_save_path}era5_{ch_name}_background_field_improvement.png', dpi=100, bbox_inches='tight')
+                plt.show()
         
-        # Plot 4: Average improvement across all DA windows
-        fig, axes = plt.subplots(1, 3, figsize=(20, 7))
-        fig.suptitle(f'ERA5 {ch_label} - 4D VAR Average Improvement Over No DA (%)\n(Entire Time Series)', fontsize=18, fontweight='bold')
+        # Additional Plot: Average improvement across all DA windows
+        fig, axes = plt.subplots(1, 3, figsize=(22, 8))  # Increased figure size
+        fig.suptitle(f'ERA5 {ch_label} 4D VAR Average Improvement Over No DA (%)\n(Entire Time Series)', 
+                     fontsize=20, fontweight='bold', y=0.98)
         
         for i, (metric, (da_key, noda_key)) in enumerate(zip(metrics, metric_keys)):
             model_names_list = list(all_models_data.keys())
@@ -280,24 +296,25 @@ if __name__ == '__main__':
                               color=[all_models_data[name]['color'] for name in model_names_list],
                               alpha=0.4, edgecolor='black', linewidth=1)
             
-            axes[i].set_xlabel('Models', fontsize=12)
-            axes[i].set_ylabel('Improvement (%)', fontsize=12)
-            axes[i].set_title(f'{metric} Average Improvement', fontsize=14, fontweight='bold')
+            axes[i].set_xlabel('Models', fontsize=16)
+            axes[i].set_ylabel('Improvement (%)', fontsize=16)
+            axes[i].set_title(f'{metric} Average Improvement', fontsize=18, fontweight='bold')
             axes[i].set_xticks(range(len(model_names_list)))
-            axes[i].set_xticklabels(model_names_list, rotation=45, ha='right', fontsize=10)
+            axes[i].set_xticklabels(model_names_list, rotation=45, ha='right', fontsize=14)
             axes[i].grid(True, alpha=0.3)
             axes[i].axhline(y=0, color='k', linestyle='-', alpha=0.3)
+            axes[i].tick_params(labelsize=14)
             
             # Add value labels on bars
             for bar, improvement in zip(bars, improvements):
                 height = bar.get_height()
                 axes[i].text(bar.get_x() + bar.get_width()/2., height + (0.5 if height > 0 else -1.5),
                             f'{improvement:.1f}%', ha='center', va='bottom' if height > 0 else 'top',
-                            fontsize=10, fontweight='bold')
+                            fontsize=12, fontweight='bold')
         
         plt.tight_layout()
-        plt.savefig(f'{fig_save_path}era5_{ch_name}_average_improvement.png', dpi=300, bbox_inches='tight')
-        plt.close(fig)
+        plt.savefig(f'{fig_save_path}era5_{ch_name}_average_improvement.png', dpi=100, bbox_inches='tight')
+        plt.show()
         
         print(f"Completed analysis for {ch_label}")
     
@@ -308,9 +325,9 @@ if __name__ == '__main__':
     
     for ch_idx, ch_name in enumerate(channel_names):
         ch_label = channel_labels[ch_idx]
-        print(f"\n{'='*50}")
+        print(f"\n{'='*60}")
         print(f"CHANNEL: {ch_label.upper()}")
-        print(f"{'='*50}")
+        print(f"{'='*60}")
         
         for name, data in all_models_data.items():
             print(f"\n{name.upper()}:")
@@ -335,6 +352,55 @@ if __name__ == '__main__':
             noda_ssim_mean, noda_ssim_std = np.mean(ch_data['noda_ssim']), np.std(ch_data['noda_ssim'])
             ssim_improvement = ((da_ssim_mean - noda_ssim_mean) / noda_ssim_mean * 100)
             print(f"SSIM - 4D Var: {da_ssim_mean:.6f}±{da_ssim_std:.6f}, No DA: {noda_ssim_mean:.6f}±{noda_ssim_std:.6f}, Improvement: {ssim_improvement:.2f}%")
+    
+    print("\n" + "="*100)
+    
+    # Enhanced summary: Background field improvement analysis for all channels
+    if da_times:
+        print("\nBACKGROUND FIELD IMPROVEMENT ANALYSIS (First DA Time Frame):")
+        print("=" * 80)
+        
+        first_da_index = da_times[0] - 1000  # Convert to array index
+        
+        if first_da_index < n_points:
+            for ch_idx, ch_name in enumerate(channel_names):
+                ch_label = channel_labels[ch_idx]
+                print(f"\n{ch_label.upper()} CHANNEL (t={da_times[0]}):")
+                print("-" * 50)
+                
+                for name, data in all_models_data.items():
+                    ch_data = data['channels'][ch_name]
+                    
+                    # Background field values at first DA time
+                    da_mse_bg = ch_data['da_mse'][first_da_index]
+                    noda_mse_bg = ch_data['noda_mse'][first_da_index]
+                    mse_bg_improvement = ((noda_mse_bg - da_mse_bg) / noda_mse_bg * 100)
+                    
+                    da_rrmse_bg = ch_data['da_rrmse'][first_da_index]
+                    noda_rrmse_bg = ch_data['noda_rrmse'][first_da_index]
+                    rrmse_bg_improvement = ((noda_rrmse_bg - da_rrmse_bg) / noda_rrmse_bg * 100)
+                    
+                    da_ssim_bg = ch_data['da_ssim'][first_da_index]
+                    noda_ssim_bg = ch_data['noda_ssim'][first_da_index]
+                    ssim_bg_improvement = ((da_ssim_bg - noda_ssim_bg) / noda_ssim_bg * 100)
+                    
+                    print(f"{name}: MSE {mse_bg_improvement:.2f}%, RRMSE {rrmse_bg_improvement:.2f}%, SSIM {ssim_bg_improvement:.2f}%")
+                
+                # Best performing model for this channel's background field
+                bg_performances = {}
+                for name, data in all_models_data.items():
+                    ch_data = data['channels'][ch_name]
+                    bg_performances[name] = {
+                        'mse': ch_data['da_mse'][first_da_index],
+                        'rrmse': ch_data['da_rrmse'][first_da_index], 
+                        'ssim': ch_data['da_ssim'][first_da_index]
+                    }
+                
+                best_bg_mse = min(bg_performances.keys(), key=lambda x: bg_performances[x]['mse'])
+                best_bg_rrmse = min(bg_performances.keys(), key=lambda x: bg_performances[x]['rrmse'])
+                best_bg_ssim = max(bg_performances.keys(), key=lambda x: bg_performances[x]['ssim'])
+                
+                print(f"Best Background Performance: MSE={best_bg_mse}, RRMSE={best_bg_rrmse}, SSIM={best_bg_ssim}")
     
     print("\n" + "="*100)
     print("ANALYSIS COMPLETE")

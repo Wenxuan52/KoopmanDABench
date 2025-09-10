@@ -24,8 +24,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.decomposition import PCA
 
-import umap
-import umap.plot  # optional if you need fancy plotting
+import pickle
+from datetime import datetime
 
 # Add src directory to path
 current_directory = os.getcwd()
@@ -174,9 +174,69 @@ def dmd_wrapper(z_t, time_fw=None, *args):
     
     return z_tp
 
-def plot_latent_space_tsne(gt_latents, no_da_latents, da_latents, 
-                          start_da_end_idxs, model_name, model_display_name):
-    """Plot a clean, publication-ready t-SNE visualization of latent space distributions"""
+def save_tsne_data(gt_latents, no_da_latents, da_latents, model_name, 
+                   tsne_2d_results=None, tsne_3d_results=None):
+    """
+    Save t-SNE dimensionality reduction results to pickle file
+    
+    Args:
+        gt_latents: Ground truth latent representations list
+        no_da_latents: No data assimilation latent representations list  
+        da_latents: Data assimilation latent representations list
+        model_name: Model name string
+        tsne_2d_results: 2D t-SNE results dictionary
+        tsne_3d_results: 3D t-SNE results dictionary
+    
+    Returns:
+        str: Path to saved pickle file
+    """
+    
+    # Convert original latent representations to numpy arrays
+    gt_latents_np = np.array([lat.cpu().numpy().flatten() for lat in gt_latents])
+    no_da_latents_np = np.array([lat.cpu().numpy().flatten() for lat in no_da_latents])
+    da_latents_np = np.array([lat.detach().cpu().numpy().flatten() for lat in da_latents])
+    
+    # Prepare data dictionary to save
+    save_data = {
+        'metadata': {
+            'timestamp': datetime.now().isoformat(),
+            'model_name': model_name,
+            'num_gt_samples': len(gt_latents_np),
+            'num_no_da_samples': len(no_da_latents_np), 
+            'num_da_samples': len(da_latents_np),
+            'latent_dimension': gt_latents_np.shape[1] if len(gt_latents_np) > 0 else 0
+        },
+        'original_latents': {
+            'ground_truth': gt_latents_np,
+            'no_data_assimilation': no_da_latents_np,
+            'data_assimilation': da_latents_np
+        }
+    }
+    
+    # Add 2D t-SNE results
+    if tsne_2d_results is not None:
+        save_data['tsne_2d'] = tsne_2d_results
+    
+    # Add 3D t-SNE results  
+    if tsne_3d_results is not None:
+        save_data['tsne_3d'] = tsne_3d_results
+    
+    # Create save directory
+    save_dir = f'../../../../results/{model_name}/DA/'
+    os.makedirs(save_dir, exist_ok=True)
+    
+    # Save as pickle file
+    pickle_path = os.path.join(save_dir, 'latent_space_analysis_data.pkl')
+    with open(pickle_path, 'wb') as f:
+        pickle.dump(save_data, f)
+    print(f"Data saved to: {pickle_path}")
+    
+    return pickle_path
+
+
+def plot_latent_space_tsne_with_save(gt_latents, no_da_latents, da_latents, 
+                                    start_da_end_idxs, model_name, model_display_name):
+    """Modified 2D t-SNE plotting function that returns dimensionality reduction results"""
 
     # Convert to numpy arrays
     gt_latents_np = np.array([lat.cpu().numpy().flatten() for lat in gt_latents])
@@ -198,35 +258,35 @@ def plot_latent_space_tsne(gt_latents, no_da_latents, da_latents,
     no_da_2d = latents_2d[n_gt:n_gt + n_no_da]
     da_2d = latents_2d[n_gt + n_no_da:]
 
-    # --- Unified colors and styles ---
+    # === Original plotting code remains unchanged ===
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=(8, 7))
 
     colors = {
-        'Ground Truth': '#808080',   # Gray
+        'One step': '#808080',   # Gray
         'No Data Assimilation': 'blue',  # Bright blue
         '4D-Var': 'red'          # Bright red
     }
     alphas = {
-        'Ground Truth': 0.4,
+        'One step': 0.4,
         'No Data Assimilation': 0.7,
         '4D-Var': 0.7
     }
     markers = {
-        'Ground Truth': 'o',
+        'One step': 'o',
         'No Data Assimilation': 's',
         '4D-Var': '^'
     }
     sizes = {
-        'Ground Truth': 70,
+        'One step': 70,
         'No Data Assimilation': 70,
         '4D-Var': 70
     }
 
     # Plot
     ax.scatter(gt_2d[:, 0], gt_2d[:, 1],
-               c=colors['Ground Truth'], marker=markers['Ground Truth'],
-               s=sizes['Ground Truth'], alpha=alphas['Ground Truth'],
+               c=colors['One step'], marker=markers['One step'],
+               s=sizes['One step'], alpha=alphas['One step'],
                edgecolors='white', linewidth=0.6, label='One step')
 
     ax.scatter(no_da_2d[:, 0], no_da_2d[:, 1],
@@ -265,11 +325,23 @@ def plot_latent_space_tsne(gt_latents, no_da_latents, da_latents,
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
     plt.close()
+    
+    # Return 2D t-SNE results
+    return {
+        'ground_truth_2d': gt_2d,
+        'no_data_assimilation_2d': no_da_2d, 
+        'data_assimilation_2d': da_2d,
+        'tsne_parameters': {
+            'n_components': 2,
+            'random_state': 42,
+            'perplexity': min(30, all_latents.shape[0] // 4)
+        }
+    }
 
 
-def plot_latent_space_tsne_3d(gt_latents, no_da_latents, da_latents, 
-                             start_da_end_idxs, model_name, model_display_name):
-    """Plot 3D t-SNE visualization of latent space without connecting lines"""
+def plot_latent_space_tsne_3d_with_save(gt_latents, no_da_latents, da_latents, 
+                                       start_da_end_idxs, model_name, model_display_name):
+    """Modified 3D t-SNE plotting function that returns dimensionality reduction results"""
     
     # Convert to numpy arrays
     gt_latents_np = np.array([lat.cpu().numpy().flatten() for lat in gt_latents])
@@ -288,34 +360,29 @@ def plot_latent_space_tsne_3d(gt_latents, no_da_latents, da_latents,
     tsne = TSNE(n_components=3, random_state=42, perplexity=min(30, all_latents.shape[0]//4))
     latents_3d = tsne.fit_transform(all_latents)
     
-    # Split back
+    # Split back into groups
     gt_3d = latents_3d[:n_gt]
     no_da_3d = latents_3d[n_gt:n_gt+n_no_da]
     da_3d = latents_3d[n_gt+n_no_da:]
     
-    # --- Colors, markers, alphas ---
-    # colors = {
-    #     'Ground Truth': '#808080',   # Gray
-    #     'No Data Assimilation': '#007bff',  # Bright blue
-    #     '4D-Var': '#ff4d4d'          # Bright red
-    # }
+    # === Original plotting code remains unchanged ===
     colors = {
-        'Ground Truth': '#808080',   # Gray
+        'One step': '#808080',   # Gray
         'No Data Assimilation': 'blue',  # Bright blue
         '4D-Var': 'red'          # Bright red
     }
     alphas = {
-        'Ground Truth': 0.4,
+        'One step': 0.4,
         'No Data Assimilation': 0.5,
         '4D-Var': 0.7
     }
     markers = {
-        'Ground Truth': 'o',
+        'One step': 'o',
         'No Data Assimilation': 's', 
         '4D-Var': '^'
     }
     sizes = {
-        'Ground Truth': 40,
+        'One step': 40,
         'No Data Assimilation': 50,
         '4D-Var': 70
     }
@@ -326,8 +393,8 @@ def plot_latent_space_tsne_3d(gt_latents, no_da_latents, da_latents,
     
     # Scatter points only
     ax.scatter(gt_3d[:, 0], gt_3d[:, 1], gt_3d[:, 2],
-               c=colors['Ground Truth'], marker=markers['Ground Truth'],
-               s=sizes['Ground Truth'], alpha=alphas['Ground Truth'],
+               c=colors['One step'], marker=markers['One step'],
+               s=sizes['One step'], alpha=alphas['One step'],
                edgecolors='white', linewidth=0.5, label='One step')
     ax.scatter(no_da_3d[:, 0], no_da_3d[:, 1], no_da_3d[:, 2],
                c=colors['No Data Assimilation'], marker=markers['No Data Assimilation'],
@@ -363,6 +430,18 @@ def plot_latent_space_tsne_3d(gt_latents, no_da_latents, da_latents,
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
     plt.close()
+    
+    # Return 3D t-SNE results
+    return {
+        'ground_truth_3d': gt_3d,
+        'no_data_assimilation_3d': no_da_3d,
+        'data_assimilation_3d': da_3d,
+        'tsne_parameters': {
+            'n_components': 3,
+            'random_state': 42,
+            'perplexity': min(30, all_latents.shape[0] // 4)
+        }
+    }
 
 
 def run_latent_space_analysis(
@@ -558,12 +637,27 @@ def run_latent_space_analysis(
     print(f"Generated {len(outs_4d_da)} DA latent representations")
     
     # Plot latent space analysis
-    print("\nCreating tSNE visualization...")
-    plot_latent_space_tsne(gt_latents, outs_no_4d_da, outs_4d_da,
-                          start_da_end_idxs, model_name, model_display_name)
-
-    plot_latent_space_tsne_3d(gt_latents, outs_no_4d_da, outs_4d_da,
-                          start_da_end_idxs, model_name, model_display_name)
+    print("\nCreating t-SNE visualization and saving data...")
+    
+    # Generate 2D t-SNE and get dimensionality reduction results
+    tsne_2d_results = plot_latent_space_tsne_with_save(
+        gt_latents, outs_no_4d_da, outs_4d_da,
+        start_da_end_idxs, model_name, model_display_name
+    )
+    
+    # Generate 3D t-SNE and get dimensionality reduction results  
+    tsne_3d_results = plot_latent_space_tsne_3d_with_save(
+        gt_latents, outs_no_4d_da, outs_4d_da,
+        start_da_end_idxs, model_name, model_display_name
+    )
+    
+    # Save all data to pickle file
+    pickle_path = save_tsne_data(
+        gt_latents, outs_no_4d_da, outs_4d_da, model_name,
+        tsne_2d_results, tsne_3d_results
+    )
+    
+    print(f"\nAll data saved to: {pickle_path}")
     
     print("\nLatent space analysis completed!")
 

@@ -349,6 +349,37 @@ if __name__ == '__main__':
             cpu_mem, gpu_mem = get_memory_usage()
             max_cpu_rollout = max(max_cpu_rollout, cpu_mem)
             max_gpu_rollout = max(max_gpu_rollout, gpu_mem)
+
+    # with torch.no_grad():
+    #     step_start = time.time()
+        
+    #     z_current = forward_model.K_S(current_state)
+    #     latent_predictions = [z_current]
+        
+    #     for step in range(n_steps):
+    #         z_next = forward_model.latent_forward(z_current)
+    #         latent_predictions.append(z_next)
+    #         z_current = z_next
+        
+    #     latent_time = time.time() - step_start
+        
+    #     decode_start = time.time()
+    #     predictions = []
+    #     for z_pred in latent_predictions[1:]:
+    #         state_pred = forward_model.K_S_preimage(z_pred)
+    #         predictions.append(state_pred)
+        
+    #     decode_time = time.time() - decode_start
+    #     total_time = time.time() - step_start
+        
+    #     cpu_mem, gpu_mem = get_memory_usage()
+    #     max_cpu_rollout = max(max_cpu_rollout, cpu_mem)
+    #     max_gpu_rollout = max(max_gpu_rollout, gpu_mem)
+        
+    #     step_times = [latent_time / n_steps] * n_steps
+    #     print(f"Latent propagation time: {latent_time:.4f}s")
+    #     print(f"Decoding time: {decode_time:.4f}s") 
+    #     print(f"Total time: {total_time:.4f}s")
     
     rollout_time = time.time() - start_time
     avg_step_time = sum(step_times) / len(step_times)

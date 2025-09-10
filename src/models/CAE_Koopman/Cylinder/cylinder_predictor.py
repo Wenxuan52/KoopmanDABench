@@ -236,8 +236,8 @@ if __name__ == '__main__':
     print(raw_data_uv.shape)
     
     forward_model = CYLINDER_C_FORWARD()
-    forward_model.load_state_dict(torch.load('../../../../results/CAE_Koopman/Cylinder/cyl_model_weights/forward_model.pt', weights_only=True, map_location='cpu'))
-    forward_model.C_forward = torch.load('../../../../results/CAE_Koopman/Cylinder/cyl_model_weights/C_forward.pt', weights_only=True, map_location='cpu')
+    forward_model.load_state_dict(torch.load('../../../../results/CAE_Koopman/Cylinder/model_weights/forward_model.pt', weights_only=True, map_location='cpu'))
+    forward_model.C_forward = torch.load('../../../../results/CAE_Koopman/Cylinder/model_weights/C_forward.pt', weights_only=True, map_location='cpu')
     forward_model.eval()
 
     print(torch.norm(forward_model.C_forward))
@@ -427,7 +427,7 @@ if __name__ == '__main__':
                     time_indices=[1, 50, 100, 200, 299], save_dir=fig_save_path)
     
     # plot_comparisons(raw_data_uv, de_reconstruct_uv, de_onestep_uv, de_rollout_uv,
-    #             time_indices=[1, 5, 10, 15, 20], save_dir=fig_save_path)
+    #             time_indices=[1, 2, 4, 7, 9], save_dir=fig_save_path)
     
 
     # Compute Metric

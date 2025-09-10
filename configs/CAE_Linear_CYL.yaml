@@ -1,10 +1,8 @@
 # Config for CAE_Linear
 
 train_mode: 'jointly'  # 'jointly', 'separately', 'multiply'
-jointly_save_folder: '../../../../results/CAE_Linear/Cylinder/model_weights'
-# cae_save_folder: '../../../../results/CAE_Linear/Cylinder/separately_cae_model_weights'
-# linear_save_folder: '../../../../results/CAE_Linear/Cylinder/separately_linear_model_weights'
-seq_length: 12
+jointly_save_folder: '../../../../results/CAE_Linear/Cylinder/model_weights_L512'
+seq_length: 16
 S1_epochs: 300
 S2_epochs: 80
 S3_epochs: 80
@@ -12,5 +10,4 @@ decay_step: 20
 batch_size: 128
 learning_rate: 0.001
 decay_rate: 0.9
-lamb: 1.0
-multi_step: 10
+lamb: 0.10

@@ -282,6 +282,7 @@ class ERA5Dataset(Dataset):
 
 
 if __name__ == '__main__':
+
     # CDD = CylinderDynamicsDataset(data_path="data/cylinder/cylinder_train_data.npy",
     #             seq_length = 12,
     #             mean=None,
@@ -370,19 +371,19 @@ if __name__ == '__main__':
 
     print(DDD.total_sample)
 
-    val_DDD = DamDynamicsDataset(data_path="data/dam/dam_val_data.npy",
-                seq_length = 12,
-                mean=DDD.mean,
-                std=DDD.std)
+    # val_DDD = DamDynamicsDataset(data_path="data/dam/dam_val_data.npy",
+    #             seq_length = 12,
+    #             mean=DDD.mean,
+    #             std=DDD.std)
     
-    print(val_DDD.mean)
-    print(val_DDD.std)
+    # print(val_DDD.mean)
+    # print(val_DDD.std)
 
-    print(val_DDD[inx][0].shape)
-    print(val_DDD[inx][1].shape)
+    # print(val_DDD[inx][0].shape)
+    # print(val_DDD[inx][1].shape)
 
-    print(val_DDD[inx][0].min())
-    print(val_DDD[inx][1].max())
+    # print(val_DDD[inx][0].min())
+    # print(val_DDD[inx][1].max())
 
     # train_set = ERA5Dataset(
     #     data_path="data/ERA5/ERA5_data/train_seq_state.h5",

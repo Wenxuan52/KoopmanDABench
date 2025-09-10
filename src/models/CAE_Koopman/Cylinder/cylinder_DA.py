@@ -411,21 +411,6 @@ def run_data_assimilation(
                 
                 diffs_da_real_ssim.append(ssim(groundtruth[i].numpy(), de_da_img[0].numpy(), data_range=1, channel_axis=0))
                 diffs_noda_real_ssim.append(ssim(groundtruth[i].numpy(), de_noda_img[0].numpy(), data_range=1, channel_axis=0))
-
-    print(diffs_da_real_mse[100])
-    print(diffs_noda_real_mse[100])
-    print(diffs_da_real_ssim[100])
-    print(diffs_noda_real_ssim[100])
-
-    print(diffs_da_real_mse[101])
-    print(diffs_noda_real_mse[101])
-    print(diffs_da_real_ssim[101])
-    print(diffs_noda_real_ssim[101])
-
-    print(diffs_da_real_mse[102])
-    print(diffs_noda_real_mse[102])
-    print(diffs_da_real_ssim[102])
-    print(diffs_noda_real_ssim[102])
     
     # Save results with model-specific path
     results_data = {
@@ -449,12 +434,17 @@ def run_data_assimilation(
                 diffs_da_real_ssim, diffs_noda_real_ssim,
                 start_da_end_idxs, time_obs, model_name)
     
-    # Generate comparison figure
-    da_idxs = [100, 110, 120]
-    generate_comparison_figure(groundtruth, outs_4d_da, outs_no_4d_da, 
-                             da_idxs, time_obs, forward_model, safe_denorm,
-                             model_name, model_display_name, 
-                             residual_vmin, residual_vmax)
+    # # Generate comparison figure
+    # da_idxs = [100, 110, 120]
+    # generate_comparison_figure(groundtruth, outs_4d_da, outs_no_4d_da, 
+    #                          da_idxs, time_obs, forward_model, safe_denorm,
+    #                          model_name, model_display_name, 
+    #                          residual_vmin, residual_vmax)
+
+    # Save animation data
+    save_animation_data(outs_4d_da, outs_no_4d_da, 
+                    start_da_end_idxs, forward_model, safe_denorm,
+                    model_name)
     
     print("\nData assimilation completed!")
 
@@ -612,6 +602,71 @@ def generate_comparison_figure(groundtruth, outs_4d_da, outs_no_4d_da,
     plt.savefig(save_filename, dpi=dpi, bbox_inches='tight', pad_inches=0.05)
     print(f"Comparison figure saved to: {save_filename}")
     plt.close()
+
+
+def save_animation_data(outs_4d_da, outs_no_4d_da, 
+                       start_da_end_idxs, forward_model, safe_denorm,
+                       model_name):
+    
+    print("\nSaving animation data...")
+    
+    start_save_idx = 801
+    end_save_idx = start_da_end_idxs[-1]  # 900
+    save_length = end_save_idx - start_save_idx + 1  # 100
+    
+    list_start_idx = start_save_idx - start_da_end_idxs[0]  # 801 - 700 = 101
+    
+    print(f"Saving data from time step {start_save_idx} to {end_save_idx}")
+    print(f"Total frames: {save_length}")
+    
+    no_da_reconstructions = np.zeros((save_length, 2, 64, 64))
+    da_reconstructions = np.zeros((save_length, 2, 64, 64))
+    
+    with torch.no_grad():
+        for i in range(save_length):
+            list_idx = list_start_idx + i
+
+            no_da_latent = outs_no_4d_da[list_idx]
+            da_latent = outs_4d_da[list_idx]
+
+            no_da_img = forward_model.K_S_preimage(no_da_latent)
+            da_img = forward_model.K_S_preimage(da_latent)
+
+            no_da_denorm = safe_denorm(no_da_img.view(2, 64, 64))
+            da_denorm = safe_denorm(da_img.view(2, 64, 64))
+
+            no_da_reconstructions[i] = no_da_denorm.cpu().numpy()
+            da_reconstructions[i] = da_denorm.cpu().numpy()
+            
+            if (i + 1) % 20 == 0:
+                print(f"Processed {i + 1}/{save_length} frames")
+
+    animation_data = {
+        'time_steps': np.arange(start_save_idx, end_save_idx + 1),
+        'no_da_reconstructions': no_da_reconstructions,
+        'da_reconstructions': da_reconstructions,
+        'metadata': {
+            'start_time_step': start_save_idx,
+            'end_time_step': end_save_idx,
+            'da_step': start_da_end_idxs[1],
+            'image_shape': (2, 64, 64),
+            'total_frames': save_length
+        }
+    }
+    
+    save_path = f'../../../../results/{model_name}/DA/cyl_animation_data.npz'
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    
+    np.savez_compressed(
+        save_path,
+        **animation_data
+    )
+    
+    print(f"Animation data saved to {save_path}")
+    print(f"Data shape: no_da_reconstructions {no_da_reconstructions.shape}")
+    print(f"Data shape: da_reconstructions {da_reconstructions.shape}")
+    
+    return save_path
 
 
 if __name__ == "__main__":
