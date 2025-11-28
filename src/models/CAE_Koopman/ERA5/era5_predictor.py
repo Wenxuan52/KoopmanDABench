@@ -355,9 +355,9 @@ if __name__ == '__main__':
     
     # Load model
     forward_model = ERA5_C_FORWARD()
-    forward_model.load_state_dict(torch.load('../../../../results/CAE_Koopman/ERA5/model_weights_FTF/forward_model.pt', 
+    forward_model.load_state_dict(torch.load('../../../../results/CAE_Koopman/ERA5/3loss_model/forward_model.pt', 
                                             weights_only=True, map_location='cpu'))
-    forward_model.C_forward = torch.load('../../../../results/CAE_Koopman/ERA5/model_weights_FTF/C_forward.pt', 
+    forward_model.C_forward = torch.load('../../../../results/CAE_Koopman/ERA5/3loss_model/C_forward.pt', 
                                        weights_only=True, map_location='cpu')
     forward_model.eval()
 

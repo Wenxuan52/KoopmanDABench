@@ -207,7 +207,7 @@ if __name__ == '__main__':
     
     start_T = 700
     
-    prediction_step = 300
+    prediction_step = 30
     
     foward_step = 12
 
@@ -236,8 +236,8 @@ if __name__ == '__main__':
     print(raw_data_uv.shape)
     
     forward_model = CYLINDER_C_FORWARD()
-    forward_model.load_state_dict(torch.load('../../../../results/CAE_Koopman/Cylinder/model_weights/forward_model.pt', weights_only=True, map_location='cpu'))
-    forward_model.C_forward = torch.load('../../../../results/CAE_Koopman/Cylinder/model_weights/C_forward.pt', weights_only=True, map_location='cpu')
+    forward_model.load_state_dict(torch.load('../../../../results/CAE_Koopman/Cylinder/3loss_model/forward_model.pt', weights_only=True, map_location='cpu'))
+    forward_model.C_forward = torch.load('../../../../results/CAE_Koopman/Cylinder/3loss_model/C_forward.pt', weights_only=True, map_location='cpu')
     forward_model.eval()
 
     print(torch.norm(forward_model.C_forward))
@@ -334,56 +334,56 @@ if __name__ == '__main__':
     max_cpu_rollout = start_cpu
     max_gpu_rollout = start_gpu
 
-    step_times = []
-    
-    with torch.no_grad():
-        for step in range(n_steps):
-            step_start = time.time()
-
-            z_current = forward_model.K_S(current_state)
-            z_next = forward_model.latent_forward(z_current)
-            next_state = forward_model.K_S_preimage(z_next)
-            
-            predictions.append(next_state)
-            current_state = next_state
-
-            step_time = time.time() - step_start
-            step_times.append(step_time)
-            
-            cpu_mem, gpu_mem = get_memory_usage()
-            max_cpu_rollout = max(max_cpu_rollout, cpu_mem)
-            max_gpu_rollout = max(max_gpu_rollout, gpu_mem)
+    # step_times = []
     
     # with torch.no_grad():
-    #     step_start = time.time()
-        
-    #     z_current = forward_model.K_S(current_state)
-    #     latent_predictions = [z_current]
-        
     #     for step in range(n_steps):
+    #         step_start = time.time()
+
+    #         z_current = forward_model.K_S(current_state)
     #         z_next = forward_model.latent_forward(z_current)
-    #         latent_predictions.append(z_next)
-    #         z_current = z_next
+    #         next_state = forward_model.K_S_preimage(z_next)
+            
+    #         predictions.append(next_state)
+    #         current_state = next_state
+
+    #         step_time = time.time() - step_start
+    #         step_times.append(step_time)
+            
+    #         cpu_mem, gpu_mem = get_memory_usage()
+    #         max_cpu_rollout = max(max_cpu_rollout, cpu_mem)
+    #         max_gpu_rollout = max(max_gpu_rollout, gpu_mem)
+    
+    with torch.no_grad():
+        step_start = time.time()
         
-    #     latent_time = time.time() - step_start
+        z_current = forward_model.K_S(current_state)
+        latent_predictions = [z_current]
         
-    #     decode_start = time.time()
-    #     predictions = []
-    #     for z_pred in latent_predictions[1:]:
-    #         state_pred = forward_model.K_S_preimage(z_pred)
-    #         predictions.append(state_pred)
+        for step in range(n_steps):
+            z_next = forward_model.latent_forward(z_current)
+            latent_predictions.append(z_next)
+            z_current = z_next
         
-    #     decode_time = time.time() - decode_start
-    #     total_time = time.time() - step_start
+        latent_time = time.time() - step_start
         
-    #     cpu_mem, gpu_mem = get_memory_usage()
-    #     max_cpu_rollout = max(max_cpu_rollout, cpu_mem)
-    #     max_gpu_rollout = max(max_gpu_rollout, gpu_mem)
+        decode_start = time.time()
+        predictions = []
+        for z_pred in latent_predictions[1:]:
+            state_pred = forward_model.K_S_preimage(z_pred)
+            predictions.append(state_pred)
         
-    #     step_times = [latent_time / n_steps] * n_steps
-    #     print(f"Latent propagation time: {latent_time:.4f}s")
-    #     print(f"Decoding time: {decode_time:.4f}s")
-    #     print(f"Total time: {total_time:.4f}s")
+        decode_time = time.time() - decode_start
+        total_time = time.time() - step_start
+        
+        cpu_mem, gpu_mem = get_memory_usage()
+        max_cpu_rollout = max(max_cpu_rollout, cpu_mem)
+        max_gpu_rollout = max(max_gpu_rollout, gpu_mem)
+        
+        step_times = [latent_time / n_steps] * n_steps
+        print(f"Latent propagation time: {latent_time:.4f}s")
+        print(f"Decoding time: {decode_time:.4f}s")
+        print(f"Total time: {total_time:.4f}s")
 
     rollout_time = time.time() - start_time
     avg_step_time = sum(step_times) / len(step_times)
@@ -412,7 +412,7 @@ if __name__ == '__main__':
     # print(de_rollout_uv.min())
     # print(de_rollout_uv.max())
 
-    np.save(fig_save_path + 'cyl_rollout.npy', de_rollout_uv)
+    np.save(fig_save_path + 'cyl_rollout_new.npy', de_rollout_uv)
 
     inference_stats['config'] = {
         'prediction_step': prediction_step,
@@ -423,11 +423,11 @@ if __name__ == '__main__':
     
     save_inference_stats(inference_stats, os.path.join(fig_save_path, 'cyl_inference_stats.pkl'))
 
-    plot_comparisons(raw_data_uv, de_reconstruct_uv, de_onestep_uv, de_rollout_uv,
-                    time_indices=[1, 50, 100, 200, 299], save_dir=fig_save_path)
-    
     # plot_comparisons(raw_data_uv, de_reconstruct_uv, de_onestep_uv, de_rollout_uv,
-    #             time_indices=[1, 2, 4, 7, 9], save_dir=fig_save_path)
+    #                 time_indices=[1, 50, 100, 200, 299], save_dir=fig_save_path)
+    
+    plot_comparisons(raw_data_uv, de_reconstruct_uv, de_onestep_uv, de_rollout_uv,
+                time_indices=[1, 5, 10, 15, 25, 29], save_dir=fig_save_path)
     
 
     # Compute Metric

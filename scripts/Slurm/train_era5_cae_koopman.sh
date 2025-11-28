@@ -7,8 +7,8 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=40G
 #SBATCH --time=24:00:00
-#SBATCH -e era5_cae_k_FTF.err
-#SBATCH -o era5_cae_k_FTF.out
+#SBATCH -e era5_cae_k_3loss.err
+#SBATCH -o era5_cae_k_3loss.out
 
 source /scratch_dgxl/wy524/miniconda3/etc/profile.d/conda.sh
 conda activate irp-env

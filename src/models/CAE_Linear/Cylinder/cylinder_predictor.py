@@ -207,7 +207,7 @@ if __name__ == '__main__':
     
     start_T = 700
     
-    prediction_step = 10
+    prediction_step = 30
     
     foward_step = 12
 
@@ -236,7 +236,7 @@ if __name__ == '__main__':
     print(raw_data_uv.shape)
     
     forward_model = CYLINDER_C_FORWARD()
-    forward_model.load_state_dict(torch.load('../../../../results/CAE_Linear/Cylinder/model_weights/forward_model.pt', weights_only=True, map_location='cpu'))
+    forward_model.load_state_dict(torch.load('../../../../results/CAE_Linear/Cylinder/4loss_model/forward_model.pt', weights_only=True, map_location='cpu'))
     forward_model.eval()
 
     print(forward_model)
@@ -420,7 +420,7 @@ if __name__ == '__main__':
     save_inference_stats(inference_stats, os.path.join(fig_save_path, 'cyl_inference_stats.pkl'))
 
     plot_comparisons(raw_data_uv, de_reconstruct_uv, de_onestep_uv, de_rollout_uv,
-                    time_indices=[1, 2, 4, 7, 9], save_dir=fig_save_path)
+                    time_indices=[1, 5, 10, 15, 25, 29], save_dir=fig_save_path)
 
     # plot_comparisons(raw_data_uv, de_reconstruct_uv, de_onestep_uv, de_rollout_uv,
     #                 time_indices=[1, 5, 10, 15, 20], save_dir=fig_save_path)

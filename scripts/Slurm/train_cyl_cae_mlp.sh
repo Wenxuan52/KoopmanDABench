@@ -1,14 +1,14 @@
 #!/bin/bash -l
 
-#SBATCH --job-name=cylinder_mlp
+#SBATCH --job-name=cylinder_mlp_4loss_model
 #SBATCH --partition=dgxl_irp
 #SBATCH --qos=dgxl_irp_low
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=40G
 #SBATCH --time=24:00:00
-#SBATCH -e cylinder_mlp.err
-#SBATCH -o cylinder_mlp.out
+#SBATCH -e cylinder_mlp_4loss_model.err
+#SBATCH -o cylinder_mlp_4loss_model.out
 
 source /scratch_dgxl/wy524/miniconda3/etc/profile.d/conda.sh
 conda activate irp-env

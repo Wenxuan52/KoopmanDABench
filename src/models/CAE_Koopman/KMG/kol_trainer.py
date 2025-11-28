@@ -18,7 +18,7 @@ src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", ".."
 sys.path.append(src_directory)
 
 from src.utils.Dataset import KolDynamicsDataset
-from src.models.CAE_DMD.trainer import set_seed, train_jointly_forward_model, save_training_log
+from src.models.CAE_Koopman.trainer import set_seed, train_ms_forward_model, save_training_log
 
 
 def main():
@@ -35,7 +35,7 @@ def main():
         print(f"[INFO] {torch.cuda.get_device_properties(0)}")
     
     # Load configuration
-    config_path = "../../../../configs/CAE_DMD_KOL.yaml"
+    config_path = "../../../../configs/CAE_K_KOL.yaml"
     with open(config_path, 'r') as file:
         config = yaml.safe_load(file)
     
@@ -50,12 +50,12 @@ def main():
     print("="*50)
     
     # Load dynamics dataset
-    kol_train_dataset = KolDynamicsDataset(data_path="../../../../data/kolmogorov/RE1000_T20/kolmogorov_train_data.npy",
+    kol_train_dataset = KolDynamicsDataset(data_path="../../../../data/kol/kolmogorov_train_data.npy",
                 seq_length = config['seq_length'],
                 mean=None,
                 std=None)
     
-    kol_val_dataset = KolDynamicsDataset(data_path="../../../../data/kolmogorov/RE1000_T20/kolmogorov_val_data.npy",
+    kol_val_dataset = KolDynamicsDataset(data_path="../../../../data/kol/kolmogorov_val_data.npy",
                 seq_length = config['seq_length'],
                 mean=kol_train_dataset.mean,
                 std=kol_train_dataset.std)
@@ -67,20 +67,22 @@ def main():
     print("JOINT TRAINING")
     print("="*50)
     
-    train_loss, val_loss = train_jointly_forward_model(
+    train_loss, val_loss = train_ms_forward_model(
         forward_model=forward_model,
         train_dataset=kol_train_dataset,
         val_dataset=kol_val_dataset,
         model_save_folder=config['save_folder'],
         learning_rate=config['learning_rate'],
         lamb=config['lamb'],
+        lamb_ms=config['lamb_ms'],
         batch_size=config['batch_size'],
         num_epochs=config['num_epochs'],
         decay_step=config['decay_step'],
         weight_decay=config['weight_decay'],
         decay_rate=config['decay_rate'],
         device=device,
-        patience=config['patience']
+        patience=config['patience'],
+        multi_step=config['multi_step']
     )
     
     save_training_log(train_loss, val_loss, f"{config['save_folder']}/losses", 0)

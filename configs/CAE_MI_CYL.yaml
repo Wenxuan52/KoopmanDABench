@@ -1,8 +1,8 @@
-save_folder: '../../../../results/CAE_MI/Cylinder/cylinder_model_weights_L512'
+save_folder: '../../../../results/CAE_MI/Cylinder/tmp'
 seq_length: 16
-num_epochs: 300
+num_epochs: 5
 decay_step: 20
-batch_size: 16
+batch_size: 128
 learning_rate: 0.001
 decay_rate: 0.8
 lamb: 0.10

@@ -317,59 +317,59 @@ if __name__ == '__main__':
     # print(val_CDD[inx][0].min())
     # print(val_CDD[inx][1].max())
 
-    # KDD = KolDynamicsDataset(data_path="data/kolmogorov/RE40/kolmogorov_train_data.npy",
-    #             seq_length = 12,
-    #             mean=None,
-    #             std=None)
-    
-    # print(KDD.mean)
-    # print(KDD.std)
-
-    # inx = 10
-    # print(KDD[inx][0].dtype)
-    # print(KDD[inx][1].dtype)
-
-    # print(KDD[inx][0].shape)
-    # print(KDD[inx][1].shape)
-
-    # print(KDD[inx][0].min())
-    # print(KDD[inx][1].max())
-
-    # print(KDD.total_sample)
-
-    # val_KDD = KolDynamicsDataset(data_path="data/kolmogorov/RE40/kolmogorov_val_data.npy",
-    #             seq_length = 12,
-    #             mean=KDD.mean,
-    #             std=KDD.std)
-    
-    # print(val_KDD.mean)
-    # print(val_KDD.std)
-
-    # print(val_KDD[inx][0].shape)
-    # print(val_KDD[inx][1].shape)
-
-    # print(val_KDD[inx][0].min())
-    # print(val_KDD[inx][1].max())
-
-    DDD = DamDynamicsDataset(data_path="data/dam/dam_train_data.npy",
+    KDD = KolDynamicsDataset(data_path="data/kol/kolmogorov_train_data.npy",
                 seq_length = 12,
                 mean=None,
                 std=None)
     
-    print(DDD.mean)
-    print(DDD.std)
+    print(KDD.mean)
+    print(KDD.std)
 
     inx = 10
-    print(DDD[inx][0].dtype)
-    print(DDD[inx][1].dtype)
+    print(KDD[inx][0].dtype)
+    print(KDD[inx][1].dtype)
 
-    print(DDD[inx][0].shape)
-    print(DDD[inx][1].shape)
+    print(KDD[inx][0].shape)
+    print(KDD[inx][1].shape)
 
-    print(DDD[inx][0].min())
-    print(DDD[inx][1].max())
+    print(KDD[inx][0].min())
+    print(KDD[inx][1].max())
 
-    print(DDD.total_sample)
+    print(KDD.total_sample)
+
+    val_KDD = KolDynamicsDataset(data_path="data/kol/kolmogorov_val_data.npy",
+                seq_length = 12,
+                mean=KDD.mean,
+                std=KDD.std)
+    
+    print(val_KDD.mean)
+    print(val_KDD.std)
+
+    print(val_KDD[inx][0].shape)
+    print(val_KDD[inx][1].shape)
+
+    print(val_KDD[inx][0].min())
+    print(val_KDD[inx][1].max())
+
+    # DDD = DamDynamicsDataset(data_path="data/dam/dam_train_data.npy",
+    #             seq_length = 12,
+    #             mean=None,
+    #             std=None)
+    
+    # print(DDD.mean)
+    # print(DDD.std)
+
+    # inx = 10
+    # print(DDD[inx][0].dtype)
+    # print(DDD[inx][1].dtype)
+
+    # print(DDD[inx][0].shape)
+    # print(DDD[inx][1].shape)
+
+    # print(DDD[inx][0].min())
+    # print(DDD[inx][1].max())
+
+    # print(DDD.total_sample)
 
     # val_DDD = DamDynamicsDataset(data_path="data/dam/dam_val_data.npy",
     #             seq_length = 12,

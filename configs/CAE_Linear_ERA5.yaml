@@ -1,9 +1,11 @@
-save_folder: '../../../../results/CAE_Linear/ERA5/model_weights_FTF'
+save_folder: '../../../../results/CAE_Linear/ERA5/3loss_model'
 seq_length: 10
 num_epochs: 300
 decay_step: 20
 batch_size: 64
 learning_rate: 0.001
 decay_rate: 0.9
-lamb: 1.0
+lamb: 0.5
+lamb_ms: 1.0
+multi_step: 5
 patience: 50

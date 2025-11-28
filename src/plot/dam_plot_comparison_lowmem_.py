@@ -16,16 +16,15 @@ def plot_compact_comparison(raw_data, dmd_data_uv, cae_dmd_data_uv, cae_koopman_
                          time_indices=[10, 40], save_dir="figures"):
     os.makedirs(save_dir, exist_ok=True)
 
-    # Convert all inputs to numpy arrays - REMOVED FPNN (dmd)
+    # Convert all inputs to numpy arrays
     raw = raw_data.numpy()
-    krr = cae_weaklinear_data_uv      # Weaklinear ROM -> KRR
-    koopman_ae = cae_koopman_data_uv   # Linear ROM -> Koopman AE  
-    vae = cae_mlp_data_uv             # MLP ROM -> VAE
-    ours = cae_linear_data_uv        # Koopman ROM -> Ours
+    krr = cae_koopman_data_uv
+    koopman_ae = cae_linear_data_uv
+    vae = dmd_data_uv
+    ours = cae_weaklinear_data_uv
 
-    # Updated titles - NO FPNN
-    titles = ['Ground Truth', 'KRR', 'KAE', 'VAE', 'Ours']
-    datas = [raw, krr, koopman_ae, vae, ours]
+    titles = ['Ground Truth', 'VAE', 'KAE', 'KKR', 'Ours']
+    datas = [raw, koopman_ae, krr, vae, ours]
 
     # Create figure with 4 rows and 6 columns (5 for plots + 1 for colorbar)
     fig, axes = plt.subplots(nrows=4, ncols=6, figsize=(15, 10))
@@ -45,7 +44,7 @@ def plot_compact_comparison(raw_data, dmd_data_uv, cae_dmd_data_uv, cae_koopman_
     vmin_err, vmax_err = all_errors.min(), all_errors.max()
 
     # Time labels corresponding to time_indices [10, 40]
-    time_labels = ["t = 6.0s", "t = 9.0s"]
+    time_labels = ["t = 5.5s", "t = 7.5s"]
 
     # Plot for each time step
     for time_row, t_idx in enumerate(time_indices):
@@ -164,4 +163,4 @@ if __name__ == '__main__':
     # Create compact comparison plot with updated time indices
     plot_compact_comparison(raw_data_uv, dmd_data_uv, cae_dmd_data_uv, cae_koopman_data_uv, 
                           cae_linear_data_uv, cae_weaklinear_data_uv, cae_mlp_data_uv, 
-                          time_indices=[10, 40], save_dir=fig_save_path)
+                          time_indices=[10, 20], save_dir=fig_save_path)

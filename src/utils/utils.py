@@ -38,5 +38,19 @@ def is_symmetric(matrix, tol=1e-8):
 class weighted_MSELoss(Module):
     def __init__(self):
         super().__init__()
-    def forward(self,inputs,targets,weights):
-        return ((inputs - targets)**2 ) * weights
+    def forward(self, inputs, targets, weights):
+        diff = (inputs - targets) ** 2
+        weights = weights.to(diff.device)
+        if weights.shape != diff.shape:
+            if weights.numel() == diff.numel():
+                weights = weights.reshape(diff.shape)
+            else:
+                while weights.dim() < diff.dim():
+                    weights = weights.unsqueeze(0)
+                try:
+                    weights = weights.expand(diff.shape)
+                except RuntimeError as exc:
+                    raise RuntimeError(
+                        f"Incompatible weight shape {tuple(weights.shape)} for target shape {tuple(diff.shape)}"
+                    ) from exc
+        return diff * weights

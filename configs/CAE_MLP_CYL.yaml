@@ -1,5 +1,5 @@
 train_mode: 'jointly'
-jointly_save_folder: '../../../../results/CAE_MLP/Cylinder/model_weights_L512'
+jointly_save_folder: '../../../../results/CAE_MLP/Cylinder/4loss_model'
 seq_length: 16
 S1_epochs: 300
 S2_epochs: 80
@@ -7,5 +7,7 @@ S3_epochs: 80
 decay_step: 20
 batch_size: 128
 learning_rate: 0.001
-decay_rate: 0.9
-lamb: 0.10
+decay_rate: 0.8
+lamb: 0.5
+lamb_ms: 1.0
+multi_step: 5

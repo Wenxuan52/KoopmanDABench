@@ -18,7 +18,7 @@ sys.path.append(src_directory)
 
 from src.utils.Dataset import ERA5Dataset
 
-from src.models.CAE_Koopman.trainer import set_seed, train_jointly_forward_model, save_training_log
+from src.models.CAE_MI.trainer import set_seed, train_ms_forward_model, save_training_log
 
 
 def main():
@@ -34,7 +34,7 @@ def main():
         print(f"[INFO] {torch.cuda.get_device_properties(0)}")
     
     # Load configuration
-    config_path = "../../../../configs/CAE_K_ERA5.yaml"
+    config_path = "../../../../configs/CAE_MI_ERA5.yaml"
     with open(config_path, 'r') as file:
         config = yaml.safe_load(file)
     
@@ -71,20 +71,25 @@ def main():
     print("JOINT TRAINING")
     print("="*50)
     
-    train_loss, val_loss = train_jointly_forward_model(
+    train_loss, val_loss = train_ms_forward_model(
         forward_model=forward_model,
         train_dataset=era5_train_set,
         val_dataset=era5_val_set,
         model_save_folder=config['save_folder'],
         learning_rate=config['learning_rate'],
         lamb=config['lamb'],
+        lamb_ms=config['lamb_ms'],
+        lamb_mi=config['alpha'],
+        lamb_entropy=config['beta'],
+        mi_temperature=config['mi_temperature'],
         batch_size=config['batch_size'],
         num_epochs=config['num_epochs'],
         decay_step=config['decay_step'],
         decay_rate=config['decay_rate'],
         device=device,
         patience=config['patience'],
-        weight_matrix=weighted_M
+        weight_matrix=weighted_M,
+        multi_step=config['multi_step']
     )
     
     save_training_log(train_loss, val_loss, f"{config['save_folder']}/losses", 0)

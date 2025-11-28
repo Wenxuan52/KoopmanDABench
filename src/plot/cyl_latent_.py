@@ -11,10 +11,10 @@ import os
 def plot_multi_model_latent_comparison():
     
     models = [
-        ("CAE_DMD", "PFNN", "da", "standard"),
-        ("CAE_Koopman", "KRR", "no_da", "rollout"),
-        ("CAE_Linear", "KAE", "no_da", "standard"),
         ("CAE_MLP", "VAE", "no_da", "standard"),
+        ("CAE_Linear", "KAE", "no_da", "standard"),        
+        ("CAE_Koopman", "KKR", "no_da", "rollout"),
+        ("CAE_DMD", "PFNN", "da", "standard"),
         ("CAE_Koopman", "Ours", "no_da", "standard")
     ]
     
@@ -26,13 +26,13 @@ def plot_multi_model_latent_comparison():
     color_blue = 'blue'
     
     def style_axes_3d(ax, title):
-        ax.set_title(title, fontsize=26, fontweight='bold', pad=10)
+        ax.set_title(title, fontsize=32, fontweight='bold', pad=10)
         ax.view_init(elev=20, azim=45)
 
         # === 轴标签（按需显示 x, y, z）===
-        ax.set_xlabel('x', fontsize=19, labelpad=-8)
-        ax.set_ylabel('y', fontsize=19, labelpad=-8)
-        ax.set_zlabel('z', fontsize=19, labelpad=-8)
+        ax.set_xlabel('x', fontsize=26, labelpad=-8)
+        ax.set_ylabel('y', fontsize=26, labelpad=-8)
+        ax.set_zlabel('z', fontsize=26, labelpad=-8)
 
         # === 网格开启 ===
         ax.grid(True, alpha=0.4, linestyle='--')
@@ -115,7 +115,7 @@ def plot_multi_model_latent_comparison():
             
             # 如果是 Ours，限制 z 轴范围
             if display_title == "Ours":
-                ax.set_zlim(-8, 8)
+                ax.set_zlim(-12, 12)
             
         except FileNotFoundError as e:
             print(f"File not found for {model_name}: {e}")
@@ -139,13 +139,13 @@ def plot_multi_model_latent_comparison():
     # 统一图例
     legend_elements = [
         plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=color_gt,
-                   markersize=12, alpha=0.4, label='Onestep Prediction'),
+                   markersize=14, alpha=0.4, label='Onestep Prediction'),
         plt.Line2D([0], [0], marker='s', color='w', markerfacecolor=color_blue,
-                   markersize=12, alpha=0.5, label='Autoregressive Prediction')
+                   markersize=14, alpha=0.5, label='Autoregressive Prediction')
     ]
     fig.legend(handles=legend_elements, loc='lower center',
                bbox_to_anchor=(0.5, -0.05), ncol=2,
-               fontsize=20, frameon=True, fancybox=True, shadow=True)
+               fontsize=28, frameon=True, fancybox=True, shadow=True)
     
     # 布局&保存
     plt.subplots_adjust(left=0.02, right=0.98, top=0.92, bottom=0.08, wspace=0.15)

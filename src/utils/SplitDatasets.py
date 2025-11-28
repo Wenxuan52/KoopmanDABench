@@ -181,20 +181,20 @@ def denormalize_data(data: np.ndarray, mean: np.ndarray, std: np.ndarray) -> np.
     return data * std + mean
 
 if __name__ == "__main__":
-    # koldata = DatasetKol("data/kolmogorov/RE1000/kf_2d_re1000_data.npy", normalize=False, train_ratio=0.8, random_seed=42)
-    # print(koldata.data.shape)
+    koldata = DatasetKol("data/kol/kf_2d_re1000_T20.0_data.npy", normalize=False, train_ratio=0.8, random_seed=42)
+    print(koldata.data.shape)
     
-    # print(koldata.mean)
-    # print(koldata.std)
+    print(koldata.mean)
+    print(koldata.std)
     
-    # print(koldata.train_data.shape)
-    # print(koldata.val_data.shape)
+    print(koldata.train_data.shape)
+    print(koldata.val_data.shape)
 
-    # print(koldata.train_data.min())
-    # print(koldata.train_data.max())
+    print(koldata.train_data.min())
+    print(koldata.train_data.max())
 
-    # print(koldata.val_data.min())
-    # print(koldata.val_data.max())
+    print(koldata.val_data.min())
+    print(koldata.val_data.max())
 
     # de_train_data = denormalize_data(koldata.train_data, koldata.mean, koldata.std)
     # de_val_data = denormalize_data(koldata.val_data, koldata.mean, koldata.std)
@@ -209,34 +209,34 @@ if __name__ == "__main__":
     # print(temp_train.shape)
     # print(temp_val.shape)
 
-    # np.save("data/kolmogorov/RE1000/kolmogorov_train_data.npy", koldata.train_data)
-    # np.save("data/kolmogorov/RE1000/kolmogorov_val_data.npy", koldata.val_data)
+    np.save("data/kol/kolmogorov_train_data.npy", koldata.train_data)
+    np.save("data/kol/kolmogorov_val_data.npy", koldata.val_data)
 
-    cylinderdata = DatasetCylinder("data/cylinder", normalize=False, train_ratio=0.8, random_seed=42)
-    print(cylinderdata.mean)
-    print(cylinderdata.std)
+    # cylinderdata = DatasetCylinder("data/cylinder", normalize=False, train_ratio=0.8, random_seed=42)
+    # print(cylinderdata.mean)
+    # print(cylinderdata.std)
 
-    print(cylinderdata.train_data.shape)
-    print(cylinderdata.val_data.shape)
+    # print(cylinderdata.train_data.shape)
+    # print(cylinderdata.val_data.shape)
 
-    print(cylinderdata.train_data.min())
-    print(cylinderdata.train_data.max())
+    # print(cylinderdata.train_data.min())
+    # print(cylinderdata.train_data.max())
 
-    print(cylinderdata.val_data.min())
-    print(cylinderdata.val_data.max())
+    # print(cylinderdata.val_data.min())
+    # print(cylinderdata.val_data.max())
 
-    # de_train_data = denormalize_data(cylinderdata.train_data, cylinderdata.mean, cylinderdata.std)
-    # de_val_data = denormalize_data(cylinderdata.val_data, cylinderdata.mean, cylinderdata.std)
-    # print(de_train_data.min())
-    # print(de_train_data.max())
-    # print(de_val_data.min())
-    # print(de_val_data.max())
+    # # de_train_data = denormalize_data(cylinderdata.train_data, cylinderdata.mean, cylinderdata.std)
+    # # de_val_data = denormalize_data(cylinderdata.val_data, cylinderdata.mean, cylinderdata.std)
+    # # print(de_train_data.min())
+    # # print(de_train_data.max())
+    # # print(de_val_data.min())
+    # # print(de_val_data.max())
 
-    # temp_train = cylinderdata.train_data[:, 500:, ...]
-    # temp_val = cylinderdata.val_data[:, 500:, ...]
+    # # temp_train = cylinderdata.train_data[:, 500:, ...]
+    # # temp_val = cylinderdata.val_data[:, 500:, ...]
 
-    np.save("data/cylinder/cylinder_train_data.npy", cylinderdata.train_data)
-    np.save("data/cylinder/cylinder_val_data.npy", cylinderdata.val_data)
+    # np.save("data/cylinder/cylinder_train_data.npy", cylinderdata.train_data)
+    # np.save("data/cylinder/cylinder_val_data.npy", cylinderdata.val_data)
 
     # damdata = DatasetDam("data/dam", normalize=False, train_ratio=0.8, random_seed=42)
     # print(damdata.mean)

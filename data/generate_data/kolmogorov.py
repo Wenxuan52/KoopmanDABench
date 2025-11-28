@@ -178,7 +178,7 @@ if __name__ == '__main__':
 
    device = "cuda:0" if torch.cuda.is_available() else "cpu"
    s = 2048
-   sub = 32  # 2048/32 = 64
+   sub = 8  # 2048/8 = 256
    n = 4
    bsize = 1
    Re = opt.re
@@ -214,7 +214,7 @@ if __name__ == '__main__':
            for j in range(t):
                NS.advance(dt, delta_t=1e-4)
                sol = NS.vorticity().cpu().numpy()
-               seed_data.append(sol[0, ::sub, ::sub])
+               seed_data.append(sol[0, ::sub, ::sub].astype(np.float32))
        
        all_data.append(np.array(seed_data))
        

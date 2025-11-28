@@ -17,7 +17,7 @@ CYLINDER_settings = {"obs_dim": [2, 64, 64],
 # Input: 64x64 -> Conv7x7 -> Pool -> 32x32 -> Conv5x5 -> Pool -> 16x16 
 # -> Conv3x3 -> Pool -> 8x8 -> Conv3x3 -> Pool -> 4x4 -> Conv3x3 -> 4x4
 # Final size: 256 channels * 4 * 4 = 4096
-CYLINDER_settings["state_feature_dim"] = [4096, 512]
+CYLINDER_settings["state_feature_dim"] = [4096, 32]
 
 
 '''

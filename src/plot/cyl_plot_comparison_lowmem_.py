@@ -18,34 +18,25 @@ def plot_compact_comparison(raw_data, dmd_data_uv, cae_dmd_data_uv, cae_koopman_
 
     # Convert all inputs to numpy arrays
     raw = raw_data.numpy()
-    dmd = cae_linear_data_uv
-    cae_dmd = cae_weaklinear_data_uv
-    cae_koopman = cae_dmd_data_uv
-    cae_linear = cae_mlp_data_uv
-    cae_weaklinear = cae_koopman_data_uv
+    cae_mlp = cae_mlp_data_uv
+    cae_dmd = cae_dmd_data_uv
+    cae_koopman = cae_koopman_data_uv
+    cae_linear = cae_linear_data_uv
+    cae_weaklinear = cae_weaklinear_data_uv
     
     # Updated titles according to requirements
-    titles = ['Ground Truth', 'PFNN', 'KRR', 'KAE', 'VAE', 'Ours']
-    datas = [raw, dmd, cae_dmd, cae_koopman, cae_linear, cae_weaklinear]
+    titles = ['Ground Truth', 'VAE', 'KAE', 'KKR', 'PFNN', 'Ours']
+    datas = [raw, cae_koopman, cae_dmd, cae_linear, cae_mlp, cae_weaklinear]
 
     # Create figure with 4 rows and 7 columns (6 for plots + 1 for colorbar)
     fig, axes = plt.subplots(nrows=4, ncols=7, figsize=(18, 10))
 
-    # Calculate global min/max for flow fields
+    # Calculate global min/max for flow fields (统一 flow field 范围)
     all_pred_data = np.concatenate([d[:, 0] for d in datas], axis=0) 
     vmin_pred, vmax_pred = all_pred_data.min(), all_pred_data.max()
 
-    all_errors = []
-    for t_idx in time_indices:
-        raw_img = raw[t_idx, 0]
-        for pred in [dmd, cae_dmd, cae_koopman, cae_linear, cae_weaklinear]:
-            err = np.abs(pred[t_idx, 0] - raw_img)
-            all_errors.append(err)
-    all_errors = np.stack(all_errors)
-    vmin_err, vmax_err = all_errors.min(), all_errors.max()
-
-    # Time labels corresponding to time_indices [10, 100]
-    time_labels = ["t = 0.71s", "t = 0.75s"]
+    # Time labels corresponding to time_indices
+    time_labels = ["t = 0.71s", "t = 0.8s"]
 
     # Plot for each time step
     for time_row, t_idx in enumerate(time_indices):
@@ -75,24 +66,37 @@ def plot_compact_comparison(raw_data, dmd_data_uv, cae_dmd_data_uv, cae_koopman_
         # Error row (rows 1 and 3)
         error_row = time_row * 2 + 1
         raw_img = raw[t_idx, 0]
-        
-        im_err = None  # Initialize to store the last error image for colorbar
-        for col in range(6):  # Only 6 models now
+
+        # 单独计算本行 error 的范围
+        row_errors = []
+        for col in range(1, 6):  # 从VAE开始
+            pred_img = datas[col][t_idx, 0]
+            row_errors.append(np.abs(pred_img - raw_img))
+        row_errors = np.stack(row_errors)
+
+        if time_row == 0:
+            # 第一行 error 统一设定 [0, 2]
+            vmin_err, vmax_err = 0.0, 1.0
+        else:
+            # 其他行按本行实际范围
+            vmin_err, vmax_err = row_errors.min(), row_errors.max()
+
+        im_err = None  # store last error for colorbar
+        for col in range(6):  
             ax = axes[error_row, col]
             
             if col == 0:
-                # First column: display "Error" text aligned with time indices
+                # 第一列显示 "Error"
                 ax.axis('off')
                 ax.text(-0.15, 0.5, 'Error', fontsize=20, fontweight='bold', 
                         transform=ax.transAxes, rotation=90, va='center', ha='center')
             else:
-                # Calculate and plot error
                 pred_img = datas[col][t_idx, 0]
                 err = np.abs(pred_img - raw_img)
                 im_err = ax.imshow(err, cmap='magma', vmin=vmin_err, vmax=vmax_err)
                 ax.axis('off')
         
-        # Add colorbar for error row
+        # 为该行单独添加 colorbar
         if im_err is not None:
             cbar_ax_err = axes[error_row, 6]
             cbar_err = fig.colorbar(im_err, ax=cbar_ax_err, fraction=1.0)
@@ -102,17 +106,18 @@ def plot_compact_comparison(raw_data, dmd_data_uv, cae_dmd_data_uv, cae_koopman_
     # Add overall title
     fig.suptitle("Kármán vortex street: Continuous Prediction from t=0.7s", fontsize=24, fontweight='bold')
 
-    # Adjust layout to be more compact
+    # Adjust layout
     plt.tight_layout()
     plt.subplots_adjust(top=0.88, hspace=0.1, wspace=0.02)
 
-    # Save as PDF
+    # Save
     fig.savefig(os.path.join(save_dir, "cyl_compact_comparison.pdf"), 
                 bbox_inches='tight', pad_inches=0.1, 
                 facecolor='white', edgecolor='none')
 
     plt.close(fig)
     print(f"[INFO] Compact comparison plot saved to {save_dir}")
+
 
 
 if __name__ == '__main__':
@@ -153,6 +158,13 @@ if __name__ == '__main__':
     print(f"[INFO] Groundtruth shape: {raw_data_uv.shape}")
 
     # Load all prediction data
+    # dmd_data_uv = np.load('../../results/DMD/figures/cyl_rollout.npy')
+    # cae_dmd_data_uv = np.load('../../results/CAE_MI/figures/cyl_rollout_new.npy')
+    # cae_koopman_data_uv = np.load('../../results/CAE_Koopman/figures/cyl_rollout.npy')
+    # cae_linear_data_uv = np.load('../../results/CAE_Linear/figures/cyl_rollout_new.npy')
+    # cae_weaklinear_data_uv = np.load('../../results/CAE_Linear/figures/cyl_rollout.npy')
+    # cae_mlp_data_uv = np.load('../../results/CAE_MLP/figures/cyl_rollout_new.npy')
+
     dmd_data_uv = np.load('../../results/DMD/figures/cyl_rollout.npy')
     cae_dmd_data_uv = np.load('../../results/CAE_DMD/figures/cyl_rollout.npy')
     cae_koopman_data_uv = np.load('../../results/CAE_Koopman/figures/cyl_rollout.npy')
@@ -160,9 +172,9 @@ if __name__ == '__main__':
     cae_weaklinear_data_uv = np.load('../../results/CAE_Weaklinear/figures/cyl_rollout.npy')
     cae_mlp_data_uv = np.load('../../results/CAE_MLP/figures/cyl_rollout.npy')
 
-    print(f"[INFO] Data shapes - DMD: {dmd_data_uv.shape}, CAE_DMD: {cae_dmd_data_uv.shape}")
+    print(f"[INFO] Data shapes - DMD: {cae_koopman_data_uv.shape}, CAE_DMD: {cae_linear_data_uv.shape}")
     
     # Create compact comparison plot with updated time indices
     plot_compact_comparison(raw_data_uv, dmd_data_uv, cae_dmd_data_uv, cae_koopman_data_uv, 
                           cae_linear_data_uv, cae_weaklinear_data_uv, cae_mlp_data_uv, 
-                          time_indices=[10, 20], save_dir=fig_save_path)
+                          time_indices=[18, 100], save_dir=fig_save_path)

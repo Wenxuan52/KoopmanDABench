@@ -124,92 +124,198 @@ class base_forward_model(nn.Module):
         return loss_fwd, loss_identity, self.C_forward.mean(dim=0)
 
     def compute_loss_multi_step(self, state_seq: torch.Tensor, state_next_seq: torch.Tensor, 
-                       multi_step: int, weight_matrix=None):
+                            multi_step: int, weight_matrix=None):
         B = state_seq.shape[0]
         device = state_seq.device
-        
         original_state_shape = state_seq.shape[2:]
-        
+
         if len(state_seq.shape) > 3:
-            state_seq_flat = state_seq.view(B, self.seq_length, -1)
-            state_next_seq_flat = state_next_seq.view(B, self.seq_length, -1)
+            state_seq_flat = state_seq.reshape(B, self.seq_length, -1)
+            state_next_seq_flat = state_next_seq.reshape(B, self.seq_length, -1)
         else:
             state_seq_flat = state_seq
             state_next_seq_flat = state_next_seq
-        
-        z_seq = torch.zeros(B, self.seq_length, self.hidden_dim).to(device)
-        z_next_seq = torch.zeros(B, self.seq_length, self.hidden_dim).to(device)
 
-        loss_fwd = 0
-        loss_identity = 0
-        loss_multi_step = 0
+        weight_matrix_flat = None
+        if weight_matrix is not None:
+            if weight_matrix.dim() == 0:
+                weight_matrix_flat = weight_matrix.view(1, 1).repeat(B, state_seq_flat.shape[-1])
+            else:
+                weight_matrix_flat = weight_matrix.reshape(weight_matrix.shape[0], -1)
+                if weight_matrix_flat.shape[0] != B:
+                    weight_matrix_flat = weight_matrix_flat.reshape(1, -1).repeat(B, 1)
+
+        z_seq = torch.zeros(B, self.seq_length, self.hidden_dim, device=device)
+        z_next_seq = torch.zeros(B, self.seq_length, self.hidden_dim, device=device)
+
+        loss_fwd = torch.tensor(0.0, device=device)
+        loss_identity = torch.tensor(0.0, device=device)
+        loss_multi_step = torch.tensor(0.0, device=device)
 
         for i in range(self.seq_length):
             if len(original_state_shape) > 1:
-                state_reshaped = state_seq_flat[:, i, :].view(B, *original_state_shape)
-                state_next_reshaped = state_next_seq_flat[:, i, :].view(B, *original_state_shape)
+                state_reshaped = state_seq_flat[:, i, :].reshape(B, *original_state_shape)
+                state_next_reshaped = state_next_seq_flat[:, i, :].reshape(B, *original_state_shape)
                 z_seq[:, i, :] = self.K_S(state_reshaped)
                 z_next_seq[:, i, :] = self.K_S(state_next_reshaped)
             else:
                 z_seq[:, i, :] = self.K_S(state_seq_flat[:, i, :])
                 z_next_seq[:, i, :] = self.K_S(state_next_seq_flat[:, i, :])
 
-        z_seq_pinv = self.batch_pinv(z_seq)
+        z_seq_pinv = self.batch_pinv(z_seq, I_factor=1e-2)
         forward_weights = torch.bmm(z_seq_pinv, z_next_seq).mean(dim=0).repeat(B, 1, 1)
-        self.C_forward = forward_weights
+        self.C_forward = forward_weights.detach().clone()
 
         pred_z_next = self.batch_latent_forward(z_seq)
-        
+
         for i in range(self.seq_length):
             recon_s = self.K_S_preimage(z_seq[:, i, :])
             recon_s_next = self.K_S_preimage(pred_z_next[:, i, :])
-            
-            if recon_s.shape != state_seq_flat[:, i, :].shape:
-                recon_s = recon_s.view(B, -1)
-            if recon_s_next.shape != state_next_seq_flat[:, i, :].shape:
-                recon_s_next = recon_s_next.view(B, -1)
 
-            if weight_matrix is not None:
-                loss_fwd += weighted_MSELoss()(recon_s_next, state_next_seq_flat[:, i, :], weight_matrix).sum()
-                loss_identity += weighted_MSELoss()(recon_s, state_seq_flat[:, i, :], weight_matrix).sum()
+            if recon_s.shape != state_seq_flat[:, i, :].shape:
+                recon_s = recon_s.reshape(B, -1)
+            if recon_s_next.shape != state_next_seq_flat[:, i, :].shape:
+                recon_s_next = recon_s_next.reshape(B, -1)
+
+            if weight_matrix_flat is not None:
+                loss_fwd += weighted_MSELoss()(recon_s_next, state_next_seq_flat[:, i, :], weight_matrix_flat).sum()
+                loss_identity += weighted_MSELoss()(recon_s, state_seq_flat[:, i, :], weight_matrix_flat).sum()
             else:
                 loss_fwd += F.mse_loss(recon_s_next, state_next_seq_flat[:, i, :])
                 loss_identity += F.mse_loss(recon_s, state_seq_flat[:, i, :])
 
         if multi_step > 1 and self.seq_length > multi_step:
             for start_idx in range(self.seq_length - multi_step):
-                start_z = z_seq[:, start_idx, :].clone()  # [B, hidden_dim]
-
+                start_z = z_seq[:, start_idx, :].clone()
                 current_z = start_z
                 pred_z_sequence = []
-                
-                for step in range(multi_step):
+
+                for _ in range(multi_step):
                     current_z = self.batch_latent_forward(current_z.unsqueeze(1)).squeeze(1)
                     pred_z_sequence.append(current_z)
 
-                pred_z_batch = torch.stack(pred_z_sequence, dim=1)  # [B, multi_step, hidden_dim]
-                pred_z_flat = pred_z_batch.view(-1, self.hidden_dim)  # [B*multi_step, hidden_dim]
-                pred_states_decoded = self.K_S_preimage(pred_z_flat)  # [B*multi_step, ...]
+                pred_z_batch = torch.stack(pred_z_sequence, dim=1)
+                pred_z_flat = pred_z_batch.reshape(-1, self.hidden_dim)
+                pred_states_decoded = self.K_S_preimage(pred_z_flat)
 
                 if pred_states_decoded.dim() > 2:
-                    pred_states_decoded = pred_states_decoded.view(pred_states_decoded.shape[0], -1)
-                
-                pred_states = pred_states_decoded.view(B, multi_step, -1)  # [B, multi_step, state_dim]
+                    pred_states_decoded = pred_states_decoded.reshape(pred_states_decoded.shape[0], -1)
 
-                target_states = state_seq_flat[:, start_idx+1:start_idx+multi_step+1, :]  # [B, multi_step, state_dim]
+                pred_states = pred_states_decoded.reshape(B, multi_step, -1)
+                target_states = state_seq_flat[:, start_idx + 1:start_idx + multi_step + 1, :]
 
                 for step in range(multi_step):
-                    pred_state = pred_states[:, step, :]  # [B, state_dim]
-                    target_state = target_states[:, step, :]  # [B, state_dim]
-                    
-                    if weight_matrix is not None:
-                        loss_multi_step += weighted_MSELoss()(pred_state, target_state, weight_matrix).sum()
+                    pred_state = pred_states[:, step, :]
+                    target_state = target_states[:, step, :]
+                    if weight_matrix_flat is not None:
+                        loss_multi_step += weighted_MSELoss()(pred_state, target_state, weight_matrix_flat).sum()
                     else:
                         loss_multi_step += F.mse_loss(pred_state, target_state)
-            
+
             loss_multi_step = loss_multi_step / (self.seq_length - multi_step)
-        
+
         return loss_fwd, loss_identity, loss_multi_step, self.C_forward.mean(dim=0)
+
+
+    def compute_loss_ms_latent_linear(self,
+                                      state_seq: torch.Tensor,
+                                      state_next_seq: torch.Tensor,
+                                      multi_step: int,
+                                      weight_matrix=None):
+        B = state_seq.shape[0]
+        device = state_seq.device
+
+        original_state_shape = state_seq.shape[2:]
+
+        if len(state_seq.shape) > 3:
+            state_seq_flat = state_seq.reshape(B, self.seq_length, -1)
+            state_next_seq_flat = state_next_seq.reshape(B, self.seq_length, -1)
+        else:
+            state_seq_flat = state_seq
+            state_next_seq_flat = state_next_seq
+
+        weight_matrix_flat = None
+        if weight_matrix is not None:
+            if weight_matrix.dim() == 0:
+                weight_matrix_flat = weight_matrix.view(1, 1).repeat(B, state_seq_flat.shape[-1])
+            else:
+                weight_matrix_flat = weight_matrix.reshape(weight_matrix.shape[0], -1)
+                if weight_matrix_flat.shape[0] != B:
+                    weight_matrix_flat = weight_matrix_flat.reshape(1, -1).repeat(B, 1)
+
+        z_seq = torch.zeros(B, self.seq_length, self.hidden_dim).to(device)
+        z_next_seq = torch.zeros(B, self.seq_length, self.hidden_dim).to(device)
+
+        loss_fwd = torch.tensor(0.0, device=device)
+        loss_identity = torch.tensor(0.0, device=device)
+        loss_fwd_latent = torch.tensor(0.0, device=device)
+        loss_multi_step = torch.tensor(0.0, device=device)
+
+        for i in range(self.seq_length):
+            if len(original_state_shape) > 1:
+                state_reshaped = state_seq_flat[:, i, :].reshape(B, *original_state_shape)
+                state_next_reshaped = state_next_seq_flat[:, i, :].reshape(B, *original_state_shape)
+                z_seq[:, i, :] = self.K_S(state_reshaped)
+                z_next_seq[:, i, :] = self.K_S(state_next_reshaped)
+            else:
+                z_seq[:, i, :] = self.K_S(state_seq_flat[:, i, :])
+                z_next_seq[:, i, :] = self.K_S(state_next_seq_flat[:, i, :])
+
+        z_seq_pinv = self.batch_pinv(z_seq, I_factor=1e-2)
+        forward_weights = torch.bmm(z_seq_pinv, z_next_seq).mean(dim=0).repeat(B, 1, 1)
+
+        self.C_forward = forward_weights.detach().clone()
+        pred_z_next = self.batch_latent_forward(z_seq)
+
+        for i in range(self.seq_length):
+            recon_s = self.K_S_preimage(z_seq[:, i, :])
+            recon_s_next = self.K_S_preimage(pred_z_next[:, i, :])
+
+            if recon_s.shape != state_seq_flat[:, i, :].shape:
+                recon_s = recon_s.reshape(B, -1)
+            if recon_s_next.shape != state_next_seq_flat[:, i, :].shape:
+                recon_s_next = recon_s_next.reshape(B, -1)
+
+            if weight_matrix is not None:
+                loss_fwd += weighted_MSELoss()(recon_s_next, state_next_seq_flat[:, i, :], weight_matrix_flat).sum()
+                loss_identity += weighted_MSELoss()(recon_s, state_seq_flat[:, i, :], weight_matrix_flat).sum()
+            else:
+                loss_fwd += F.mse_loss(recon_s_next, state_next_seq_flat[:, i, :])
+                loss_identity += F.mse_loss(recon_s, state_seq_flat[:, i, :])
+
+            loss_fwd_latent += F.mse_loss(pred_z_next[:, i, :], z_next_seq[:, i, :])
+
+        if multi_step > 1 and self.seq_length > multi_step:
+            for start_idx in range(self.seq_length - multi_step):
+                current_z = z_seq[:, start_idx, :].clone()
+                pred_z_sequence = []
+
+                for _ in range(multi_step):
+                    current_z = self.batch_latent_forward(current_z.unsqueeze(1)).squeeze(1)
+                    pred_z_sequence.append(current_z)
+
+                pred_z_batch = torch.stack(pred_z_sequence, dim=1)
+                pred_z_flat = pred_z_batch.reshape(-1, self.hidden_dim)
+                pred_states_decoded = self.K_S_preimage(pred_z_flat)
+
+                if pred_states_decoded.dim() > 2:
+                    pred_states_decoded = pred_states_decoded.reshape(pred_states_decoded.shape[0], -1)
+
+                pred_states = pred_states_decoded.reshape(B, multi_step, -1)
+                target_states = state_seq_flat[:, start_idx + 1:start_idx + multi_step + 1, :]
+
+                for step in range(multi_step):
+                    pred_state = pred_states[:, step, :]
+                    target_state = target_states[:, step, :]
+
+                    if weight_matrix is not None:
+                        loss_multi_step += weighted_MSELoss()(pred_state, target_state, weight_matrix_flat).sum()
+                    else:
+                        loss_multi_step += F.mse_loss(pred_state, target_state)
+
+            loss_multi_step = loss_multi_step / (self.seq_length - multi_step)
+
+        return loss_fwd, loss_identity, loss_multi_step, loss_fwd_latent, self.C_forward.mean(dim=0)
 
     @staticmethod
     def batch_pinv(z_seq: torch.Tensor, I_factor:float=1e-2):

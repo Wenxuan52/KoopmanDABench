@@ -8,7 +8,7 @@ from base import *
 # State dimension = 2 channels, 64x64 resolution
 CYLINDER_settings = {"obs_dim": [2, 64, 64], 
                     "state_dim": [2, 64, 64], 
-                    "seq_length": 12,
+                    "seq_length": 16,
                     "obs_feature_dim": [512, 128, 64, 32, 16, 8], 
                     "state_filter_feature_dim": [16, 32, 64, 128, 256]}
 

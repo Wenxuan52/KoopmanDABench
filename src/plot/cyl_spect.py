@@ -83,7 +83,7 @@ def plot_spectra(all_data):
     
     ax1.grid(True, alpha=0.3)
     ax1.legend(fontsize=10)
-    ax1.set_xlim([freq_filtered[1], freq_filtered[-1]])  # 跳过第一个点避免数值问题
+    ax1.set_xlim([freq_filtered[1], freq_filtered[-1]])
     
     # 绘制空间谱
     ax2.set_title('Spatial Spectrum', fontsize=14, fontweight='bold')

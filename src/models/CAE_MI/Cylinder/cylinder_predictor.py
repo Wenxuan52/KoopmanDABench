@@ -236,8 +236,8 @@ if __name__ == '__main__':
     print(raw_data_uv.shape)
     
     forward_model = CYLINDER_C_FORWARD()
-    forward_model.load_state_dict(torch.load('../../../../results/CAE_MI/Cylinder/cylinder_model_weights_L5/forward_model.pt', weights_only=True, map_location='cpu'))
-    forward_model.C_forward = torch.load('../../../../results/CAE_MI/Cylinder/cylinder_model_weights_L5/C_forward.pt', weights_only=True, map_location='cpu')
+    forward_model.load_state_dict(torch.load('../../../../results/CAE_MI/Cylinder/cylinder_model_weights_L512/forward_model.pt', weights_only=True, map_location='cpu'))
+    forward_model.C_forward = torch.load('../../../../results/CAE_MI/Cylinder/cylinder_model_weights_L512/C_forward.pt', weights_only=True, map_location='cpu')
     forward_model.eval()
 
     print(torch.norm(forward_model.C_forward))
@@ -415,7 +415,7 @@ if __name__ == '__main__':
     # print(de_rollout_uv.min())
     # print(de_rollout_uv.max())
 
-    np.save(fig_save_path + 'cyl_rollout.npy', de_rollout_uv)
+    np.save(fig_save_path + 'cyl_rollout_new.npy', de_rollout_uv)
 
     inference_stats['config'] = {
         'prediction_step': prediction_step,
