@@ -1,17 +1,17 @@
 #!/bin/bash -l
 
-#SBATCH --job-name=kol_weaklinear
+#SBATCH --job-name=kol_cae_mlp
 #SBATCH --partition=dgxl_irp
-#SBATCH --qos=dgxl_irp_high
+#SBATCH --qos=dgxl_irp_low
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=40G
 #SBATCH --time=24:00:00
-#SBATCH -e kol_weaklinear_3loss_model1.err
-#SBATCH -o kol_weaklinear_3loss_model1.out
+#SBATCH -e kol_cae_mlp_3loss_model1.err
+#SBATCH -o kol_cae_mlp_3loss_model1.out
 
 source /scratch_dgxl/wy524/miniconda3/etc/profile.d/conda.sh
 conda activate irp-env
 
-cd src/models/CAE_Weaklinear/KMG
+cd src/models/CAE_MLP/KMG
 python kol_trainer.py

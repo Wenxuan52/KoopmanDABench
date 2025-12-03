@@ -10,11 +10,12 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from base import *
 
-# State dimension = 1 channel (vorticity), 64x64 resolution for Kolmogorov flow
-KOL_settings = {"obs_dim": [1, 64, 64], 
-                    "state_dim": [1, 64, 64], 
-                    "seq_length": 5}
+# State dimension = 1 channel (vorticity), 256x256 resolution for Kolmogorov flow
+KOL_settings = {"obs_dim": [1, 256, 256], 
+                    "state_dim": [1, 256, 256], 
+                    "seq_length": 12}
 
+# Latent feature map is reduced to 16x16 with embed_dim=16 -> 4096 features before projection
 KOL_settings["state_feature_dim"] = [16 * 16 * 16, 512]
 
 '''
@@ -121,7 +122,9 @@ class KOL_K_S(Module):
         self.num_heads = 2
 
         self.input_proj = nn.Conv2d(1, self.embed_dim, kernel_size=7, stride=1, padding=3)
-        self.downsample = nn.Conv2d(self.embed_dim, self.embed_dim, kernel_size=4, stride=4)
+        # Two downsampling stages: 256 -> 64 -> 16 to match state_feature_dim
+        self.downsample1 = nn.Conv2d(self.embed_dim, self.embed_dim, kernel_size=4, stride=4)
+        self.downsample2 = nn.Conv2d(self.embed_dim, self.embed_dim, kernel_size=4, stride=4)
 
         self.factorized_layers = nn.ModuleList([
             FactorizedBlock(self.embed_dim, self.num_heads)
@@ -135,8 +138,9 @@ class KOL_K_S(Module):
     def forward(self, state):
         B, C, H, W = state.shape
 
-        x = self.input_proj(state)  # [B, embed_dim, 64, 64]
-        x = self.downsample(x)      # [B, embed_dim, 16, 16]
+        x = self.input_proj(state)  # [B, embed_dim, 256, 256]
+        x = self.downsample1(x)     # [B, embed_dim, 64, 64]
+        x = self.downsample2(x)     # [B, embed_dim, 16, 16]
 
         x = x.permute(0, 2, 3, 1)  # [B, 16, 16, embed_dim]
 
@@ -167,9 +171,11 @@ class KOL_K_S_preimage(nn.Module):
         # Linear layer to reconstruct the flattened feature map
         self.linear = nn.Linear(self.hidden_dims[1], self.embed_dim * self.spatial_size * self.spatial_size)
         
-        # Upsampling layers to go from 16x16 to 64x64
-        self.upsample1 = nn.ConvTranspose2d(self.embed_dim, 32, kernel_size=4, stride=2, padding=1)  # 16->32
-        self.upsample2 = nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1)  # 32->64
+        # Upsampling layers to go from 16x16 back to 256x256
+        self.upsample1 = nn.ConvTranspose2d(self.embed_dim, 128, kernel_size=4, stride=2, padding=1)  # 16->32
+        self.upsample2 = nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1)  # 32->64
+        self.upsample3 = nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1)  # 64->128
+        self.upsample4 = nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1)  # 128->256
         
         # Final output projection
         self.output_proj = nn.Conv2d(16, self.input_dim, kernel_size=3, stride=1, padding=1)
@@ -198,14 +204,20 @@ class KOL_K_S_preimage(nn.Module):
         x = x.view(batch_size, self.embed_dim, self.spatial_size, self.spatial_size)
         
         # Upsample to original resolution
-        x = self.upsample1(x)  # [batch, 32, 32, 32]
+        x = self.upsample1(x)  # [batch, 128, 32, 32]
         x = self.relu(x)
         
-        x = self.upsample2(x)  # [batch, 16, 64, 64]
+        x = self.upsample2(x)  # [batch, 64, 64, 64]
+        x = self.relu(x)
+
+        x = self.upsample3(x)  # [batch, 32, 128, 128]
+        x = self.relu(x)
+
+        x = self.upsample4(x)  # [batch, 16, 256, 256]
         x = self.relu(x)
         
         # Final output projection
-        x = self.output_proj(x)  # [batch, 2, 64, 64]
+        x = self.output_proj(x)  # [batch, 1, 256, 256]
         
         # Output refinement
         recon_s = self.output_conv(x)

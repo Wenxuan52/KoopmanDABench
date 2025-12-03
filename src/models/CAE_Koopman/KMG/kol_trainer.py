@@ -41,6 +41,12 @@ def main():
     
     print("[INFO] Starting Kolmogorov Flow Model Training")
     print(f"[INFO] Configuration: {config}")
+
+    if config['load_model']:
+        print(f"[INFO] Loading checkpoint from {config['ckpt_path']}")
+        checkpoint = torch.load(config['ckpt_path'], map_location=device)
+
+        forward_model.load_state_dict(checkpoint["model_state"])
     
     # ========================================
     # Train Forward Model

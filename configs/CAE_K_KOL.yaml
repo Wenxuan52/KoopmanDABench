@@ -1,6 +1,6 @@
-save_folder: '../../../../results/CAE_Koopman/KMG/3loss_model'
+save_folder: '../../../../results/CAE_Koopman/KMG/3loss_model1'
 seq_length: 12
-num_epochs: 300
+num_epochs: 40
 decay_step: 20
 batch_size: 12
 learning_rate: 0.001
@@ -8,5 +8,8 @@ decay_rate: 0.9
 weight_decay: 1.0e-4
 lamb: 0.5
 lamb_ms: 1.0
-multi_step: 5
-patience: 50
+multi_step: 3
+patience: 35
+
+load_model: False
+ckpt_path: ''

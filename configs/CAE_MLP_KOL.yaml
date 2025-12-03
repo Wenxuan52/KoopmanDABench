@@ -1,12 +1,15 @@
-train_mode: 'jointly'
-jointly_save_folder: '../../../../results/CAE_MLP/KMG/model_weights'
-seq_length: 5
-S1_epochs: 300
-S2_epochs: 100
-S3_epochs: 100
+save_folder: '../../../../results/CAE_MLP/KMG/3loss_model1'
+seq_length: 12
+num_epochs: 60
 decay_step: 20
-weight_decay: 1e-4
-batch_size: 128
-learning_rate: 0.0001
+batch_size: 64
+learning_rate: 0.001
 decay_rate: 0.9
-lamb: 1.0
+weight_decay: 1.0e-4
+lamb: 0.5
+lamb_ms: 1.0
+multi_step: 3
+patience: 35
+
+load_model: False
+ckpt_path: ''

@@ -7,8 +7,8 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=40G
 #SBATCH --time=24:00:00
-#SBATCH -e kol_linear_debug.err
-#SBATCH -o kol_linear_debug.out
+#SBATCH -e kol_linear_3loss_model1.err
+#SBATCH -o kol_linear_3loss_model1.out
 
 source /scratch_dgxl/wy524/miniconda3/etc/profile.d/conda.sh
 conda activate irp-env
