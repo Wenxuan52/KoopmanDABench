@@ -6,6 +6,7 @@ data/dam/
 data/2DAdvdiffEq/
 data/CHAP/
 data/ERA5/
+data/ERA5_high/raw_data/
 data/kol/
 
 .DS_Store

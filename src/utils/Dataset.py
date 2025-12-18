@@ -283,6 +283,8 @@ class ERA5Dataset(Dataset):
 
 if __name__ == '__main__':
 
+    print("Testing Dataset classes...")
+
     # CDD = CylinderDynamicsDataset(data_path="data/cylinder/cylinder_train_data.npy",
     #             seq_length = 12,
     #             mean=None,
@@ -317,39 +319,39 @@ if __name__ == '__main__':
     # print(val_CDD[inx][0].min())
     # print(val_CDD[inx][1].max())
 
-    KDD = KolDynamicsDataset(data_path="data/kol/kolmogorov_train_data.npy",
-                seq_length = 12,
-                mean=None,
-                std=None)
+    # KDD = KolDynamicsDataset(data_path="data/kol/kolmogorov_train_data.npy",
+    #             seq_length = 12,
+    #             mean=None,
+    #             std=None)
     
-    print(KDD.mean)
-    print(KDD.std)
+    # print(KDD.mean)
+    # print(KDD.std)
 
-    inx = 10
-    print(KDD[inx][0].dtype)
-    print(KDD[inx][1].dtype)
+    # inx = 10
+    # print(KDD[inx][0].dtype)
+    # print(KDD[inx][1].dtype)
 
-    print(KDD[inx][0].shape)
-    print(KDD[inx][1].shape)
+    # print(KDD[inx][0].shape)
+    # print(KDD[inx][1].shape)
 
-    print(KDD[inx][0].min())
-    print(KDD[inx][1].max())
+    # print(KDD[inx][0].min())
+    # print(KDD[inx][1].max())
 
-    print(KDD.total_sample)
+    # print(KDD.total_sample)
 
-    val_KDD = KolDynamicsDataset(data_path="data/kol/kolmogorov_val_data.npy",
-                seq_length = 12,
-                mean=KDD.mean,
-                std=KDD.std)
+    # val_KDD = KolDynamicsDataset(data_path="data/kol/kolmogorov_val_data.npy",
+    #             seq_length = 12,
+    #             mean=KDD.mean,
+    #             std=KDD.std)
     
-    print(val_KDD.mean)
-    print(val_KDD.std)
+    # print(val_KDD.mean)
+    # print(val_KDD.std)
 
-    print(val_KDD[inx][0].shape)
-    print(val_KDD[inx][1].shape)
+    # print(val_KDD[inx][0].shape)
+    # print(val_KDD[inx][1].shape)
 
-    print(val_KDD[inx][0].min())
-    print(val_KDD[inx][1].max())
+    # print(val_KDD[inx][0].min())
+    # print(val_KDD[inx][1].max())
 
     # DDD = DamDynamicsDataset(data_path="data/dam/dam_train_data.npy",
     #             seq_length = 12,
