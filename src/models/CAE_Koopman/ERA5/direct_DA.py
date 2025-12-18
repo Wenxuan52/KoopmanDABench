@@ -2,18 +2,23 @@ import argparse
 import os
 import sys
 import time
-from typing import Callable, List, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import numpy as np
 import torch
 import torch.nn.functional as F
+
+# Ensure matplotlib has a writable config directory even if implicitly used downstream
+_mpl_dir = "/tmp/matplotlib_config"
+os.makedirs(_mpl_dir, exist_ok=True)
+os.environ.setdefault("MPLCONFIGDIR", _mpl_dir)
 
 current_directory = os.getcwd()
 src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", "..", ".."))
 sys.path.append(src_directory)
 
 from src.models.CAE_Koopman.dabase import CAEKoopmanDABase
-from src.models.CAE_Koopman.ERA5.era5_model import ERA5_C_FORWARD
+from src.models.CAE_Koopman.ERA5.era5_model_FTF import ERA5_C_FORWARD
 from src.utils.Dataset import ERA5Dataset
 
 
@@ -61,23 +66,28 @@ def create_observation_mask(
 
 
 def prepare_observations(
-    normalized_frames: torch.Tensor, mask_indices: torch.Tensor
-) -> List[torch.Tensor]:
+    normalized_frames: torch.Tensor,
+    mask_indices: torch.Tensor,
+    observation_interval: int,
+) -> List[Optional[torch.Tensor]]:
     observations = []
-    for frame in normalized_frames:
-        flat = frame.view(-1)
-        observations.append(flat[mask_indices])
+    for idx, frame in enumerate(normalized_frames):
+        if observation_interval > 0 and (idx % observation_interval == 0):
+            flat = frame.reshape(-1)
+            observations.append(flat[mask_indices])
+        else:
+            observations.append(None)
     return observations
 
 
 def run_iterative_assimilation(
     da_solver: CAEKoopmanDABase,
-    observations: List[torch.Tensor],
+    observations: List[Optional[torch.Tensor]],
     initial_latent: torch.Tensor,
     background_cov: torch.Tensor,
     observation_noise: float,
     tol: float = 1e-4,
-    max_iter: int = 5,
+    max_iter: int = 1,
 ) -> Tuple[dict, int, float]:
     current_latent = initial_latent.clone()
     runtime_accum = 0.0
@@ -111,10 +121,11 @@ def main() -> None:
     parser.add_argument("--max_path", type=str, default="../../../../data/ERA5/ERA5_data/max_val.npy")
     parser.add_argument("--window", type=int, default=50, help="DA window length.")
     parser.add_argument("--observation_ratio", type=float, default=0.15)
-    parser.add_argument("--num_trials", type=int, default=10)
+    parser.add_argument("--num_trials", type=int, default=1)
     parser.add_argument("--background_cov", type=float, default=1e-3)
     parser.add_argument("--obs_noise", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--obs_interval", type=int, default=10, help="Observation interval (frames) for filtering.")
     parser.add_argument("--save_dir", type=str, default="../../../../results/CAE_Koopman/ERA5/DA")
     args = parser.parse_args()
 
@@ -144,10 +155,12 @@ def main() -> None:
 
     # Prepare ground truth and observations
     window_end = 1 + args.window
-    gt_frames_physical = raw_data[1 : window_end + 1]  # frames 1..window
+    gt_frames_physical = raw_data[1:window_end]  # frames 1..window (exclusive upper bound)
     gt_frames_norm = era5_dataset.normalize(gt_frames_physical)
-    observations = prepare_observations(gt_frames_norm, mask_indices.to(gt_frames_norm.device))
-    observations = [obs.to(device) for obs in observations]
+    observations = prepare_observations(
+        gt_frames_norm, mask_indices.to(gt_frames_norm.device), observation_interval=max(1, args.obs_interval)
+    )
+    observations = [obs.to(device) if obs is not None else None for obs in observations]
 
     initial_state_norm = era5_dataset.normalize(raw_data[0].unsqueeze(0))[0].to(device)
     with torch.no_grad():

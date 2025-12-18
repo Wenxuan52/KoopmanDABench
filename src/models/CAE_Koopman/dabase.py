@@ -161,9 +161,11 @@ class CAEKoopmanDABase:
         observation_noise: Union[float, Tensor, Sequence[Union[float, Tensor]]],
         time_index: int,
         obs_dim: int,
+        min_variance: float = 1e-6,
     ) -> Tensor:
         """
         Convert flexible noise specifications into a full covariance matrix.
+        Always enforces a minimum variance to avoid singular innovations.
         """
         if isinstance(observation_noise, (list, tuple)):
             noise_spec = observation_noise[time_index]
@@ -171,13 +173,18 @@ class CAEKoopmanDABase:
             noise_spec = observation_noise
 
         if noise_spec is None:
-            cov = torch.eye(obs_dim, device=self.device, dtype=self.dynamics_matrix.dtype)
+            cov = torch.eye(obs_dim, device=self.device, dtype=self.dynamics_matrix.dtype) * min_variance
         else:
             cov = torch.as_tensor(noise_spec, device=self.device, dtype=self.dynamics_matrix.dtype)
             if cov.dim() == 0:
-                cov = torch.eye(obs_dim, device=self.device, dtype=self.dynamics_matrix.dtype) * cov
+                cov = torch.eye(obs_dim, device=self.device, dtype=self.dynamics_matrix.dtype) * max(
+                    float(cov.item()), min_variance
+                )
             elif cov.dim() == 1:
-                cov = torch.diag(cov)
+                cov = torch.diag(torch.maximum(cov, torch.full_like(cov, min_variance)))
+            else:
+                cov = cov.clone()
+                cov = cov + torch.eye(obs_dim, device=self.device, dtype=self.dynamics_matrix.dtype) * min_variance
         return cov
 
     def _kalman_filter(
@@ -221,7 +228,19 @@ class CAEKoopmanDABase:
             else:
                 R_t = self._prepare_observation_noise(observation_noise, t, obs.numel())
                 innovation_cov = hz_t @ P_pred @ hz_t.t() + R_t
-                gain = P_pred @ hz_t.t() @ torch.linalg.pinv(innovation_cov)
+                jitter = 1e-6
+                for _ in range(3):
+                    try:
+                        inv_innov = torch.linalg.pinv(innovation_cov)
+                        break
+                    except torch.linalg.LinAlgError:
+                        innovation_cov = innovation_cov + jitter * torch.eye(
+                            innovation_cov.shape[-1], device=innovation_cov.device, dtype=innovation_cov.dtype
+                        )
+                        jitter *= 10
+                else:
+                    inv_innov = torch.linalg.pinv(innovation_cov)
+                gain = P_pred @ hz_t.t() @ inv_innov
                 innovation = obs - torch.matmul(hz_t, mu_pred)
                 mu_post = mu_pred + torch.matmul(gain, innovation)
                 P_post = (identity - gain @ hz_t) @ P_pred
@@ -253,7 +272,19 @@ class CAEKoopmanDABase:
         for t in reversed(range(num_steps - 1)):
             P_ft = filter_covs[t]
             P_pred_next = pred_covs[t + 1]
-            gain = P_ft @ self.dynamics_matrix.t() @ torch.linalg.pinv(P_pred_next)
+            jitter = 1e-6
+            for _ in range(3):
+                try:
+                    inv_p_pred_next = torch.linalg.pinv(P_pred_next)
+                    break
+                except torch.linalg.LinAlgError:
+                    P_pred_next = P_pred_next + jitter * torch.eye(
+                        P_pred_next.shape[-1], device=P_pred_next.device, dtype=P_pred_next.dtype
+                    )
+                    jitter *= 10
+            else:
+                inv_p_pred_next = torch.linalg.pinv(P_pred_next)
+            gain = P_ft @ self.dynamics_matrix.t() @ inv_p_pred_next
 
             next_mean_diff = smoothed_means[t + 1] - pred_means[t + 1]
             smoothed_means[t] = filter_means[t] + torch.matmul(gain, next_mean_diff)
