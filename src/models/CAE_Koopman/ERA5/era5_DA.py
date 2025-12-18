@@ -10,8 +10,6 @@ import numpy as np
 import torch
 from skimage.metrics import structural_similarity as ssim
 
-import torchda
-
 # Add src directory to path
 current_directory = os.getcwd()
 src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", "..", ".."))
@@ -161,7 +159,6 @@ def run_multi_da_experiment(
         obs_handler=obs_handler,
         device=device,
         early_stop=early_stop_config,
-        algorithm=torchda.Algorithms.Var1D,
     )
 
     run_metrics = {"mse": [], "rrmse": [], "ssim": []}
@@ -181,14 +178,15 @@ def run_multi_da_experiment(
         noda_background = z_background.clone()
 
         for step in range(window_length):
-            obs_vector = sparse_observations[step].unsqueeze(0)
+            obs_vector = sparse_observations[step]
+            obs_stack = torch.stack([obs_vector, obs_vector])  # two time points for 4D-Var
             background_state = z_background.ravel()
 
             z_assimilated, intermediates, elapsed = executor.assimilate_step(
-                observations=obs_vector,
+                observations=obs_stack,
                 background_state=background_state,
                 observation_time_idx=step,
-                observation_time_steps=[0],
+                observation_time_steps=[0, 1],
                 gaps=[1],
                 B=B,
                 R=R,
