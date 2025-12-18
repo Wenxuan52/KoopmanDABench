@@ -14,6 +14,7 @@ from skimage.metrics import structural_similarity as ssim
 current_directory = os.getcwd()
 src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", "..", ".."))
 sys.path.append(src_directory)
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib_config")
 
 from era5_model_FTF import ERA5_C_FORWARD
 from src.models.CAE_Koopman.dabase import (
@@ -172,7 +173,7 @@ def run_multi_da_experiment(
         noda_states = []
         total_da_time = 0.0
 
-        current_state = normalized_groundtruth[0].to(device)
+        current_state = normalized_groundtruth[0].to(device).unsqueeze(0)
         z_background = forward_model.latent_forward(forward_model.K_S(current_state))
         noda_background = z_background.clone()
 
