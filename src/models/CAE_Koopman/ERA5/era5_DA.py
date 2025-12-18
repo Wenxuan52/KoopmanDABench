@@ -10,6 +10,8 @@ import numpy as np
 import torch
 from skimage.metrics import structural_similarity as ssim
 
+import torchda
+
 # Add src directory to path
 current_directory = os.getcwd()
 src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", "..", ".."))
@@ -159,6 +161,7 @@ def run_multi_da_experiment(
         obs_handler=obs_handler,
         device=device,
         early_stop=early_stop_config,
+        algorithm=torchda.Algorithms.Var1D,
     )
 
     run_metrics = {"mse": [], "rrmse": [], "ssim": []}
