@@ -135,7 +135,7 @@ def run_multi_da_experiment(
     normalized_groundtruth = dataset.normalize(groundtruth)
     print(f"Ground truth slice shape: {groundtruth.shape}")
 
-    # Observations (fixed positions, fixed ratio)
+    # Observations (fixed positions, fixed ratio) at specific steps
     obs_handler = UnifiedDynamicSparseObservationHandler(
         max_obs_ratio=obs_ratio, min_obs_ratio=obs_ratio, seed=42
     )
@@ -149,6 +149,8 @@ def run_multi_da_experiment(
         )
         sparse_observations.append(sparse)
     sparse_observations = torch.stack(sparse_observations).to(device)
+
+    observation_schedule = [0, 10, 20, 30, 40]
 
     latent_dim = forward_model.C_forward.shape[0]
     B = torch.eye(latent_dim, device=device)
@@ -178,33 +180,45 @@ def run_multi_da_experiment(
         noda_background = z_background.clone()
 
         for step in range(window_length):
-            obs_vector = sparse_observations[step]
-            obs_stack = torch.stack([obs_vector, obs_vector])  # two time points for 4D-Var
-            background_state = z_background.ravel()
+            if step in observation_schedule:
+                obs_vector = sparse_observations[step]
+                obs_stack = torch.stack(
+                    [obs_vector, obs_vector]
+                )  # duplicated to satisfy 4D-Var
+                background_state = z_background.ravel()
 
-            z_assimilated, intermediates, elapsed = executor.assimilate_step(
-                observations=obs_stack,
-                background_state=background_state,
-                observation_time_idx=step,
-                observation_time_steps=[0, 1],
-                gaps=[1],
-                B=B,
-                R=R,
-            )
+                z_assimilated, intermediates, elapsed = executor.assimilate_step(
+                    observations=obs_stack,
+                    background_state=background_state,
+                    observation_time_idx=step,
+                    observation_time_steps=[0, 1],
+                    gaps=[1],
+                    B=B,
+                    R=R,
+                )
 
-            total_da_time += elapsed
-            if intermediates:
-                final_cost = intermediates.get("J", [None])[-1]
-                if final_cost is not None:
-                    print(f"Step {step + 1}: final cost {final_cost}")
+                total_da_time += elapsed
+                if intermediates:
+                    final_cost = intermediates.get("J", [None])[-1]
+                    if final_cost is not None:
+                        print(f"Step {step + 1}: final cost {final_cost}")
 
-            z_assimilated = (
-                z_assimilated if z_assimilated.ndim > 1 else z_assimilated.unsqueeze(0)
-            )
-            decoded_assim = executor.decode_latent(z_assimilated).squeeze(0).detach().cpu()
-            da_states.append(decoded_assim)
-
-            z_background = forward_model.latent_forward(z_assimilated)
+                z_assimilated = (
+                    z_assimilated
+                    if z_assimilated.ndim > 1
+                    else z_assimilated.unsqueeze(0)
+                )
+                decoded_assim = (
+                    executor.decode_latent(z_assimilated).squeeze(0).detach().cpu()
+                )
+                da_states.append(decoded_assim)
+                z_background = forward_model.latent_forward(z_assimilated)
+            else:
+                decoded_background = (
+                    executor.decode_latent(z_background).squeeze(0).detach().cpu()
+                )
+                da_states.append(decoded_background)
+                z_background = forward_model.latent_forward(z_background)
 
             noda_decoded = executor.decode_latent(noda_background).squeeze(0).detach().cpu()
             noda_states.append(noda_decoded)
