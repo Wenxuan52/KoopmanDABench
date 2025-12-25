@@ -10,12 +10,17 @@ aggregated metrics (`multi_meanstd.npz`) to create two figures:
 Images are saved alongside this script.
 """
 
+import sys
 import os
 from typing import Sequence, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+
+current_directory = os.getcwd()
+src_directory = os.path.abspath(os.path.join(current_directory, "..", ".."))
+sys.path.append(src_directory)
 
 from src.utils.Dataset import ERA5Dataset
 
@@ -87,7 +92,7 @@ def plot_field_comparison(
 
         for row, (data, cmap, mn, mx) in enumerate(images):
             ax = axes[row, col]
-            im = ax.imshow(data, cmap=cmap, vmin=mn, vmax=mx)
+            im = ax.imshow(data.T, cmap=cmap, vmin=mn, vmax=mx)
             ax.set_xticks([])
             ax.set_yticks([])
             if col == 0:
@@ -151,7 +156,7 @@ def main():
 
     da_states = np.load(multi_path)
     window_length = da_states.shape[0]
-    start_T = 1000  # must match the assimilation run
+    start_T = 0  # must match the assimilation run
 
     groundtruth = load_groundtruth(start_T, window_length, data_path, min_path, max_path)
 

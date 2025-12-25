@@ -139,17 +139,17 @@ class KoopmanDAExecutor:
         if time_fw is None:
             return self.forward_model.latent_forward(z_t)
 
+        # Propagate purely in latent space to respect Koopman dynamics.
+        time_steps = int(time_fw.shape[0])
         z_tp = torch.empty(
-            (time_fw.shape[0], z_t.shape[0], z_t.shape[1]), device=z_t.device
+            (time_steps, z_t.shape[0], z_t.shape[1]), device=z_t.device
         )
-        current_state = self.forward_model.K_S_preimage(z_t)
+        z_current = z_t
 
-        for i in range(int(time_fw.shape[0])):
-            z_current = self.forward_model.K_S(current_state)
+        for i in range(time_steps):
             z_tp[i] = z_current
-            if i < int(time_fw.shape[0]) - 1:
-                z_next = self.forward_model.latent_forward(z_current)
-                current_state = self.forward_model.K_S_preimage(z_next)
+            if i < time_steps - 1:
+                z_current = self.forward_model.latent_forward(z_current)
 
         return z_tp
 
