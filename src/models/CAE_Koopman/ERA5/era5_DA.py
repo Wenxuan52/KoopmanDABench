@@ -108,13 +108,13 @@ def run_multi_da_experiment(
     forward_model = ERA5_C_FORWARD().to(device)
     forward_model.load_state_dict(
         torch.load(
-            f"../../../../results/{model_name}/ERA5/model_weights_FTF/forward_model.pt",
+            f"../../../../results/{model_name}/ERA5/3loss_model/forward_model.pt",
             weights_only=True,
             map_location=device,
         )
     )
     forward_model.C_forward = torch.load(
-        f"../../../../results/{model_name}/ERA5/model_weights_FTF/C_forward.pt",
+        f"../../../../results/{model_name}/ERA5/3loss_model/C_forward.pt",
         weights_only=True,
         map_location=device,
     ).to(device)
