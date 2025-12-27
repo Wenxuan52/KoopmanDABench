@@ -113,7 +113,10 @@ class UnifiedDynamicSparseObservationHandler:
         obs_vector[valid_indices] = fixed_obs[valid_indices]
 
         if add_noise and self.noise_std > 0:
-            obs_vector = obs_vector + torch.randn_like(obs_vector) * self.noise_std
+            # Only perturb effective observation entries; keep unused slots noiseless.
+            obs_vector[valid_indices] += (
+                torch.randn_like(obs_vector[valid_indices]) * self.noise_std
+            )
 
         return obs_vector
 
@@ -176,7 +179,7 @@ class KoopmanDAExecutor:
         """Observation operator using the unified sparse handler."""
         x_reconstructed = self.forward_model.K_S_preimage(x)
         sparse_obs = self.obs_handler.apply_unified_observation(
-            x_reconstructed.squeeze(), self._obs_time_idx
+            x_reconstructed.squeeze(), self._obs_time_idx, add_noise=False
         )
         return sparse_obs.unsqueeze(0)
 
