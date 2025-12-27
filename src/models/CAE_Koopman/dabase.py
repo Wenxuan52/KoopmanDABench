@@ -30,6 +30,9 @@ def set_device() -> str:
 class UnifiedDynamicSparseObservationHandler:
     """
     Generate and reuse unified sparse observation masks across time steps.
+
+    Supports optional additive Gaussian noise on observed entries to
+    emulate noisy measurements.
     """
 
     def __init__(
@@ -37,10 +40,12 @@ class UnifiedDynamicSparseObservationHandler:
         max_obs_ratio: float = 0.15,
         min_obs_ratio: float = 0.05,
         seed: Optional[int] = 42,
+        noise_std: float = 0.0,
     ):
         self.max_obs_ratio = max_obs_ratio
         self.min_obs_ratio = min_obs_ratio
         self.seed = seed
+        self.noise_std = noise_std
         self.fixed_positions: Optional[torch.Tensor] = None
         self.max_obs_count: int = 0
         self.time_masks: dict[int, dict[str, torch.Tensor | float | int]] = {}
@@ -66,6 +71,12 @@ class UnifiedDynamicSparseObservationHandler:
 
         self.fixed_positions = torch.randperm(total_pixels)[: self.max_obs_count]
 
+        actual_ratio = self.max_obs_count / total_pixels
+        print(
+            f"Fixed observation setup: {self.max_obs_count} observations ({actual_ratio:.3%} ratio)"
+        )
+        print(f"Noise level: σ = {self.noise_std:.4f}")
+
         for i, _ in enumerate(time_steps):
             obs_ratio = np.random.uniform(self.min_obs_ratio, self.max_obs_ratio)
             num_valid = int(total_pixels * obs_ratio)
@@ -81,7 +92,10 @@ class UnifiedDynamicSparseObservationHandler:
         return self.max_obs_count
 
     def apply_unified_observation(
-        self, full_image: torch.Tensor, time_step_idx: int
+        self,
+        full_image: torch.Tensor,
+        time_step_idx: int,
+        add_noise: bool = True,
     ) -> torch.Tensor:
         """Apply observation mask to a full image tensor."""
         if time_step_idx not in self.time_masks:
@@ -98,10 +112,15 @@ class UnifiedDynamicSparseObservationHandler:
         valid_indices = mask_info["valid_indices"]
         obs_vector[valid_indices] = fixed_obs[valid_indices]
 
+        if add_noise and self.noise_std > 0:
+            obs_vector = obs_vector + torch.randn_like(obs_vector) * self.noise_std
+
         return obs_vector
 
-    def create_block_R_matrix(self, base_variance: float = 1e-3) -> torch.Tensor:
+    def create_block_R_matrix(self, base_variance: Optional[float] = None) -> torch.Tensor:
         """Create a diagonal observation covariance matrix."""
+        if base_variance is None:
+            base_variance = max(self.noise_std**2, 1e-6)
         return torch.eye(self.max_obs_count) * base_variance
 
 

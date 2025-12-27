@@ -91,11 +91,12 @@ def compute_metrics(
 
 def run_multi_da_experiment(
     obs_ratio: float = 0.15,
-    observation_variance: float = 1e-3,
+    obs_noise_std: float = 0.05,
+    observation_variance: float | None = None,
     window_length: int = 50,
     num_runs: int = 5,
     early_stop_config: Tuple[int, float] = (100, 1e-3),
-    start_T: int = 0,
+    start_T: int = 1000,
     model_name: str = "CAE_Koopman",
 ):
     """Run repeated DA experiments and collect mean/std statistics."""
@@ -137,7 +138,7 @@ def run_multi_da_experiment(
 
     # Observations (fixed positions, fixed ratio) at specific steps
     obs_handler = UnifiedDynamicSparseObservationHandler(
-        max_obs_ratio=obs_ratio, min_obs_ratio=obs_ratio, seed=42
+        max_obs_ratio=obs_ratio, min_obs_ratio=obs_ratio, seed=42, noise_std=obs_noise_std
     )
     sample_shape = normalized_groundtruth[1].shape
     obs_handler.generate_unified_observations(sample_shape, list(range(window_length)))
@@ -145,7 +146,7 @@ def run_multi_da_experiment(
     sparse_observations = []
     for idx in range(window_length):
         sparse = obs_handler.apply_unified_observation(
-            normalized_groundtruth[idx + 1], idx
+            normalized_groundtruth[idx + 1], idx, add_noise=True
         )
         sparse_observations.append(sparse)
     sparse_observations = torch.stack(sparse_observations).to(device)
