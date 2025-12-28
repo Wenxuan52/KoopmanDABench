@@ -296,7 +296,9 @@ class CGKN_ODE(nn.Module):
 def CGFilter(
     cgn: CGN,
     sigma: torch.Tensor,
-    u1_series: torch.Tensor,
+    u1_init: torch.Tensor,
+    obs_series: torch.Tensor,
+    update_mask: torch.Tensor,
     mu0: torch.Tensor,
     R0: torch.Tensor,
     dt: float,
@@ -308,9 +310,10 @@ def CGFilter(
     kalman_drift_clip: float | None = 0.1,
     kalman_state_clip: float | None = 10.0,
     use_diag_cov: bool = True,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    device = u1_series.device
-    T, dim_u1, _ = u1_series.shape
+    observation_variance: float | None = None,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    device = obs_series.device
+    T, dim_u1, _ = obs_series.shape
     dim_z = mu0.shape[0]
     sigma = clamp_sigma_sections(sigma, dim_u1)
     s1 = torch.diag(sigma[:dim_u1]).to(device)
@@ -318,20 +321,32 @@ def CGFilter(
     eps = kalman_reg
     eye_u1 = torch.eye(dim_u1, device=device)
     eye_z = torch.eye(dim_z, device=device)
-    s1_cov = s1 @ s1.T + eps * eye_u1
+    obs_var = observation_variance if observation_variance is not None else 0.0
+    s1_cov = s1 @ s1.T + eps * eye_u1 + obs_var * eye_u1
     s2_cov = s2 @ s2.T + eps * eye_z
 
     mu_prev = mu0.clone()
     R_prev = R0.clone()
     mu_post = []
     R_post = []
+    u1_forcing = []
+
+    assert u1_init.shape == (dim_u1,), f"u1_init shape {u1_init.shape} != ({dim_u1},)"
+    u1_curr = u1_init.to(device)
 
     for n in range(T):
-        f1, g1, f2, g2 = cgn(u1_series[n, :, 0].unsqueeze(0))
+        f1, g1, f2, g2 = cgn(u1_curr.unsqueeze(0))
         f1 = f1.squeeze(0)
         g1 = g1.squeeze(0)
         f2 = f2.squeeze(0)
         g2 = g2.squeeze(0)
+
+        if not update_mask[n]:
+            obs = None
+        else:
+            obs = obs_series[n, :, 0]
+            if torch.isnan(obs).any():
+                raise ValueError(f"Observation missing at step {n} where update_mask is True")
 
         s2_cov = stabilise_covariance(s2_cov, use_diag=use_diag_cov)
         A = eye_z + dt * g2
@@ -340,34 +355,47 @@ def CGFilter(
         R_pred = A @ R_prev @ A.T + dt * (g2 @ R_prev @ g2.T) + s2_cov
         R_pred = stabilise_covariance(R_pred, use_diag=use_diag_cov)
 
-        H = dt * g1
-        innovation = u1_series[n] - dt * (f1 + g1 @ mu_pred)
-        if kalman_innovation_clip is not None:
-            innovation = innovation.clamp(min=-kalman_innovation_clip, max=kalman_innovation_clip)
-        S = H @ R_pred @ H.T + s1_cov
-        S = stabilise_covariance(S, use_diag=use_diag_cov)
-        S_inv = torch.linalg.pinv(S)
-        K = R_pred @ H.T @ S_inv
-        if kalman_gain_scale is not None:
-            K = K * kalman_gain_scale
-        if kalman_gain_clip is not None:
-            K = K.clamp(min=-kalman_gain_clip, max=kalman_gain_clip)
-        mu_new = mu_pred + K @ innovation
-        if kalman_drift_clip is not None:
-            mu_new = mu_new.clamp(min=-kalman_drift_clip, max=kalman_drift_clip)
-        R_new = (eye_z - K @ H) @ R_pred @ (eye_z - K @ H).T + K @ s1_cov @ K.T
-        R_new = stabilise_covariance(R_new, use_diag=use_diag_cov)
-        if kalman_state_clip is not None:
-            mu_new = mu_new.clamp(min=-kalman_state_clip, max=kalman_state_clip)
+        if obs is None:
+            mu_new = mu_pred
+            R_new = R_pred
+        else:
+            H = dt * g1
+            innovation = obs.unsqueeze(-1) - dt * (f1 + g1 @ mu_pred)
+            if kalman_innovation_clip is not None:
+                innovation = innovation.clamp(min=-kalman_innovation_clip, max=kalman_innovation_clip)
+            S = H @ R_pred @ H.T + s1_cov
+            S = stabilise_covariance(S, use_diag=use_diag_cov)
+            S_inv = torch.linalg.pinv(S)
+            K = R_pred @ H.T @ S_inv
+            if kalman_gain_scale is not None:
+                K = K * kalman_gain_scale
+            if kalman_gain_clip is not None:
+                K = K.clamp(min=-kalman_gain_clip, max=kalman_gain_clip)
+            mu_new = mu_pred + K @ innovation
+            if kalman_drift_clip is not None:
+                mu_new = mu_new.clamp(min=-kalman_drift_clip, max=kalman_drift_clip)
+            R_new = (eye_z - K @ H) @ R_pred @ (eye_z - K @ H).T + K @ s1_cov @ K.T
+            R_new = stabilise_covariance(R_new, use_diag=use_diag_cov)
+            if kalman_state_clip is not None:
+                mu_new = mu_new.clamp(min=-kalman_state_clip, max=kalman_state_clip)
         mu_prev, R_prev = mu_new, R_new
+
         if not torch.isfinite(mu_new).all():
             raise RuntimeError(_tensor_summary("mu_new", mu_new))
         if not torch.isfinite(R_new).all():
             raise RuntimeError(_tensor_summary("R_new", R_new))
         mu_post.append(mu_new.unsqueeze(0))
         R_post.append(R_new.unsqueeze(0))
+        u1_forcing.append(u1_curr.unsqueeze(0))
 
-    return torch.cat(mu_post, dim=0), torch.cat(R_post, dim=0)
+        if n < T - 1:
+            v_curr = mu_new.squeeze(-1)
+            u1_dot = f1 + g1 @ v_curr.unsqueeze(-1)
+            v_dot = f2 + g2 @ v_curr.unsqueeze(-1)
+            u1_next = u1_curr + dt * u1_dot.squeeze(-1)
+            u1_curr = u1_next.detach()
+
+    return torch.cat(mu_post, dim=0), torch.cat(R_post, dim=0), torch.cat(u1_forcing, dim=0)
 
 
 # -----------------------------------------------------------------------------
@@ -377,6 +405,7 @@ def CGFilter(
 def run_multi_da_experiment(
     obs_ratio: float = 0.15,
     obs_noise_std: float = 0.05,
+    observation_schedule: list = [0, 10, 20, 30, 40],
     observation_variance: float | None = None,
     window_length: int = 50,
     num_runs: int = 5,
@@ -436,11 +465,21 @@ def run_multi_da_experiment(
         coords = np.load(coords_path).tolist()
         print(f"Loaded probe coordinates from {coords_path}")
     else:
-        coords = make_probe_coords_from_ratio(H, W, obs_ratio, layout=probe_layout, seed=probe_seed, min_spacing=probe_min_spacing)
+        coords = make_probe_coords_from_ratio(
+            H, W, obs_ratio, layout=probe_layout, seed=probe_seed, min_spacing=probe_min_spacing
+        )
         print(f"Probe coordinates not found at {coords_path}, generated {len(coords)} points instead.")
     probe_sampler = ProbeSampler(coords, use_channels)
     dim_u1 = probe_sampler.dim_u1
     print(f"[OBS] dim_u1 = {dim_u1}  (points={len(coords)}, channels={len(use_channels)})")
+
+    observation_steps = list(range(total_frames)) if observation_schedule is None else list(observation_schedule)
+    for step in observation_steps:
+        if step < 0 or step >= total_frames:
+            raise ValueError(f"observation_schedule step {step} outside [0, {total_frames - 1}]")
+    update_mask = torch.zeros(total_frames, dtype=torch.bool)
+    for step in observation_steps:
+        update_mask[step] = True
 
     latent_dim = sigma_hat.numel() - dim_u1
     assert latent_dim > 0, "sigma_hat length must exceed dim_u1 to include latent components"
@@ -455,10 +494,20 @@ def run_multi_da_experiment(
 
     u1_full = probe_sampler.sample(normalized_groundtruth.unsqueeze(0))
     assert u1_full.shape[1] == total_frames, "Probe sampling length mismatch"
-    u1_series = u1_full[0]
-    if obs_noise_std > 0:
-        u1_series = u1_series + torch.randn_like(u1_series) * obs_noise_std
-    u1_series = u1_series.unsqueeze(-1).to(device)
+    u1_gt = u1_full[0]
+    u1_obs = torch.full_like(u1_gt, float("nan"))
+    for step in observation_steps:
+        obs = u1_gt[step].clone()
+        if obs_noise_std > 0:
+            obs = obs + torch.randn_like(obs) * obs_noise_std
+        u1_obs[step] = obs
+    if 0 in observation_steps:
+        u1_init = u1_obs[0].clone()
+    else:
+        u1_init = u1_gt[0].clone()
+
+    obs_series = u1_obs.unsqueeze(-1).to(device)
+    update_mask = update_mask.to(device)
 
     mu0 = torch.zeros(latent_dim, 1, device=device)
     R0 = 1e-2 * torch.eye(latent_dim, device=device)
@@ -471,13 +520,17 @@ def run_multi_da_experiment(
         print(f"\nStarting assimilation run {run_idx + 1}/{num_runs}")
         set_seed(42 + run_idx)
 
-        mu_post, _ = CGFilter(
+        obs_var = observation_variance if observation_variance is not None else obs_noise_std**2
+        mu_post, _, u1_used = CGFilter(
             cgn,
             sigma_hat.to(device),
-            u1_series,
+            u1_init.to(device),
+            obs_series,
+            update_mask,
             mu0,
             R0,
             dt,
+            observation_variance=obs_var,
         )
         mu_v = mu_post.squeeze(-1)
         da_fields = decoder(mu_v.unsqueeze(0)).squeeze(0).detach().cpu()
@@ -485,7 +538,7 @@ def run_multi_da_experiment(
 
         tspan = torch.linspace(0.0, window_length * dt, window_length + 1, device=device)
         v0 = encoder(normalized_groundtruth[:1].unsqueeze(0).to(device))[:, 0, :]
-        uext0 = torch.cat([u1_series[0].squeeze(-1).unsqueeze(0), v0], dim=-1)
+        uext0 = torch.cat([u1_init.to(device).unsqueeze(0), v0], dim=-1)
         uext_pred = torchdiffeq.odeint(ode_func, uext0, tspan, method="rk4", options={"step_size": dt})
         uext_pred = uext_pred.transpose(0, 1)
         v_pred = uext_pred[:, :, dim_u1:]
