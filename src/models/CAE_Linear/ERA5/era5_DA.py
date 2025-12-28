@@ -92,11 +92,12 @@ def compute_metrics(
 def run_multi_da_experiment(
     obs_ratio: float = 0.15,
     obs_noise_std: float = 0.05,
+    observation_schedule: list = [0, 10, 20, 30, 40],
     observation_variance: float | None = None,
     window_length: int = 50,
     num_runs: int = 5,
     early_stop_config: Tuple[int, float] = (100, 1e-3),
-    start_T: int = 1000,
+    start_T: int = 0,
     model_name: str = "CAE_Linear",
 ):
     """Run repeated DA experiments and collect mean/std statistics."""
@@ -146,7 +147,7 @@ def run_multi_da_experiment(
         sparse_observations.append(sparse)
     sparse_observations = torch.stack(sparse_observations).to(device)
 
-    observation_schedule = [0, 10, 20, 30, 40]
+    # observation_schedule = [0, 10, 20, 30, 40]
 
     latent_dim = forward_model.C_forward.shape[0]
     B = torch.eye(latent_dim, device=device)

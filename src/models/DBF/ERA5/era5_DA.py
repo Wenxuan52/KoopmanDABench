@@ -131,11 +131,12 @@ def decode_pairs(decoder: ERA5Decoder, latent_pairs: torch.Tensor) -> torch.Tens
 def run_multi_da_experiment(
     obs_ratio: float = 0.15,
     obs_noise_std: float = 0.05,
+    observation_schedule = [0, 10, 20, 30, 40],
     observation_variance: float | None = None,
     window_length: int = 50,
     num_runs: int = 5,
     early_stop_config: Tuple[int, float] | None = None,
-    start_T: int = 1000,
+    start_T: int = 0,
     model_name: str = "DBF",
     checkpoint_name: str = "best_model.pt",
 ):
@@ -216,8 +217,6 @@ def run_multi_da_experiment(
     run_metrics = {"mse": [], "rrmse": [], "ssim": []}
     run_times = []
     first_run_states = None
-
-    observation_schedule = [0, 10, 20, 30, 40]
 
     for run_idx in range(num_runs):
         print(f"\nStarting assimilation run {run_idx + 1}/{num_runs}")

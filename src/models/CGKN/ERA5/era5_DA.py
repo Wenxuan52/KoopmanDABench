@@ -381,7 +381,7 @@ def run_multi_da_experiment(
     window_length: int = 50,
     num_runs: int = 5,
     early_stop_config: Tuple[int, float] = (100, 1e-3),
-    start_T: int = 1000,
+    start_T: int = 0,
     model_name: str = "CGKN",
     ckpt_prefix: str = "stage2",
     probe_layout: str = "random",
