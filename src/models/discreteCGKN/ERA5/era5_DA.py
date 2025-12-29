@@ -74,6 +74,17 @@ def compute_metrics(da_states: torch.Tensor, noda_states: torch.Tensor, groundtr
     rrmse_list: List[np.ndarray] = []
     ssim_list: List[np.ndarray] = []
 
+    if da_states.dim() == 5 and da_states.shape[1] == 1:
+        da_states = da_states.squeeze(1)
+    if noda_states.dim() == 5 and noda_states.shape[1] == 1:
+        noda_states = noda_states.squeeze(1)
+    if groundtruth.dim() == 5 and groundtruth.shape[1] == 1:
+        groundtruth = groundtruth.squeeze(1)
+
+    assert da_states.shape == noda_states.shape == groundtruth.shape, (
+        f"Shape mismatch: da {da_states.shape}, noda {noda_states.shape}, gt {groundtruth.shape}"
+    )
+
     T = groundtruth.shape[0]
     for t in range(T):
         gt = groundtruth[t].cpu()
@@ -91,8 +102,6 @@ def compute_metrics(da_states: torch.Tensor, noda_states: torch.Tensor, groundtr
             rrmse_step.append(((diff_da.sum() / denom).sqrt().item(), (diff_noda.sum() / denom).sqrt().item()))
             data_range = (gt[c].max() - gt[c].min()).item()
             if data_range > 0:
-                print(gt[c].detach().numpy().shape)
-                print(da[c].detach().numpy().shape)
                 ssim_da = ssim(gt[c].detach().numpy(), da[c].detach().numpy(), data_range=data_range)
                 ssim_noda = ssim(gt[c].detach().numpy(), noda[c].detach().numpy(), data_range=data_range)
             else:
@@ -287,12 +296,13 @@ def run_da_single(
         )
         if has_obs:
             u1_hold = u_obs  # update hold for next step conditioning
-        preds.append(decode_mu(decoder, mu))
+        # decode_mu returns [B, C, H, W]; drop the batch dimension for metric alignment
+        preds.append(decode_mu(decoder, mu).squeeze(0))
 
         # No-DA branch: pure rollout
         u_next = cgn(u_state)
         noda_mu = u_next[:, dim_u1:]
-        noda_preds.append(decode_mu(decoder, noda_mu.unsqueeze(-1)))
+        noda_preds.append(decode_mu(decoder, noda_mu.unsqueeze(-1)).squeeze(0))
         u_state = u_next
 
         if debug and k == 0:
@@ -400,8 +410,8 @@ def run_multi_da_experiment(
 
     out_dir = results_dir / "DA"
     out_dir.mkdir(parents=True, exist_ok=True)
-    np.save(out_dir / "multi.npy", da_stack[0].numpy())
-    np.save(out_dir / "noda.npy", noda_stack[0].numpy())
+    np.save(out_dir / "multi.npy", da_stack[0].detach().numpy())
+    np.save(out_dir / "noda.npy", noda_stack[0].detach().numpy())
     np.savez(
         out_dir / "multi_meanstd.npz",
         mse_mean=mse_mean,
