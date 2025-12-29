@@ -15,6 +15,6 @@ conda activate koopmanda
 
 # Cylinder / Dam / ERA5
 # DMD / CAE_DMD / CAE_Koopman / CAE_Linear / CAE_Weaklinear / CAE_MLP
-cd src/models/CAE_Koopman/ERA5
+cd src/models/discreteCGKN/ERA5
 
 python direct_DA.py

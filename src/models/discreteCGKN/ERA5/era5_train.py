@@ -277,7 +277,6 @@ def compute_sigma_hat(
         sigma_hat[sampler.dim_u1 :] = sigma_z_override
     return sigma_hat.cpu().numpy()
 
-
 def cg_filter_batch(cgn: DiscreteCGN, sigma: torch.Tensor, u1_seq: torch.Tensor):
     """Closed-form filter aligning with Eq. (2.6): coeffs at ``u1[n]`` and
     innovation from ``u1[n+1]``.
@@ -302,16 +301,13 @@ def cg_filter_batch(cgn: DiscreteCGN, sigma: torch.Tensor, u1_seq: torch.Tensor)
     D_inv = 1.0 / (sigma_u1**2 + 1e-6)
     s2_cov = torch.diag(sigma_z**2).to(device)
 
-    mu_pred = torch.zeros(B, T, dim_z, 1, device=device)
-    R_pred = torch.zeros(B, T, dim_z, dim_z, device=device)
-
-    mu_pred[:, 0] = 0.0
-    R_pred[:, 0] = 0.01 * torch.eye(dim_z, device=device).unsqueeze(0)
     eye_z = torch.eye(dim_z, device=device).unsqueeze(0)
+    mu_list = [torch.zeros(B, dim_z, 1, device=device)]
+    R_list = [0.01 * eye_z.expand(B, -1, -1)]
 
     for n in range(T - 1):
-        mu_n = mu_pred[:, n]
-        R_n = R_pred[:, n]
+        mu_n = mu_list[-1]
+        R_n = R_list[-1]
         u1_n = u1_seq[:, n]
         u1_np1 = u1_seq[:, n + 1]
 
@@ -340,19 +336,22 @@ def cg_filter_batch(cgn: DiscreteCGN, sigma: torch.Tensor, u1_seq: torch.Tensor)
         Rn_g1T = torch.bmm(R_n, g1.transpose(1, 2))
         Sinv_innov = apply_Sinv(innov)
         base_pred = f2 + torch.bmm(g2, mu_n)
-        correction = torch.bmm(torch.bmm(g2, Rn_g1T), Sinv_innov)
-        mu_next = base_pred + correction
+        mu_next = base_pred + torch.bmm(torch.bmm(g2, Rn_g1T), Sinv_innov)
 
-        gain_lat = torch.bmm(g2, Rn_g1T)
-        Sinv_g1Rn_g2T = apply_Sinv(torch.bmm(g1, torch.bmm(R_n, g2.transpose(1, 2))))
-        cov_correction = torch.bmm(gain_lat, Sinv_g1Rn_g2T)
-        R_next = torch.bmm(torch.bmm(g2, R_n), g2.transpose(1, 2)) + s2_cov - cov_correction
+        # Covariance update: R_{n+1} = g2 Rn g2^T + s2 s2^T - g2 Rn g1^T S^{-1} g1 Rn g2^T
+        Rn_g1T_Sinv = torch.bmm(Rn_g1T, apply_Sinv(g1))
+        R_next = (
+            torch.bmm(torch.bmm(g2, R_n), g2.transpose(1, 2))
+            + s2_cov.unsqueeze(0)
+            - torch.bmm(torch.bmm(g2, Rn_g1T_Sinv), g2.transpose(1, 2))
+        )
 
-        mu_pred[:, n + 1] = mu_next
-        R_pred[:, n + 1] = R_next
+        mu_list.append(mu_next)
+        R_list.append(R_next)
 
+    mu_pred = torch.stack(mu_list, dim=1)
+    R_pred = torch.stack(R_list, dim=1)
     return mu_pred, R_pred
-
 
 def _debug_filter_consistency():
     """Manual check comparing Woodbury filter to a naive inverse version.
