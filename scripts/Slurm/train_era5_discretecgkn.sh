@@ -15,4 +15,4 @@ conda activate koopmanda
 
 cd src/models/discreteCGKN/ERA5/
 
-python era5_train.py
+python era5_train.py --train_stage2

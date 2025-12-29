@@ -18,6 +18,7 @@ internally as needed.
 """
 
 import argparse
+import copy
 import json
 import math
 import os
@@ -136,30 +137,70 @@ class ProbeSampler:
 
 class DiscreteCGN(nn.Module):
     """
-    Discrete CGN dynamics with one-step affine mapping (from NSE reference):
-      u_extended = [u1, v] -> u_extended_next = [f1 + g1 v, f2 + g2 v]
+    Discrete CGN dynamics with a *conditional* affine mapping as in the discrete
+    NSE reference: given the current probe u1, predict affine coefficients via a
+    small MLP and apply the one-step map
+
+      [u1, v] -> [f1(u1) + g1(u1) v, f2(u1) + g2(u1) v].
+
     Inputs/outputs are flattened vectors with shapes [B, dim_u1 + dim_z].
     """
 
-    def __init__(self, dim_u1: int, dim_z: int):
+    def __init__(self, dim_u1: int, dim_z: int, hidden_dim: int = 256):
         super().__init__()
         self.dim_u1 = dim_u1
         self.dim_z = dim_z
-        self.f1 = nn.Parameter((1 / dim_u1**0.5) * torch.rand(dim_u1, 1))
-        self.g1 = nn.Parameter((1 / (dim_u1 * dim_z) ** 0.5) * torch.rand(dim_u1, dim_z))
-        self.f2 = nn.Parameter((1 / dim_z**0.5) * torch.rand(dim_z, 1))
-        self.g2 = nn.Parameter((1 / dim_z) * torch.rand(dim_z, dim_z))
+        self.hidden_dim = hidden_dim
+
+        output_dim = dim_u1 + dim_u1 * dim_z + dim_z + dim_z * dim_z
+        self.cond_net = nn.Sequential(
+            nn.Linear(dim_u1, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, output_dim),
+        )
+
+    def _split_params(self, params: torch.Tensor):
+        """Split flattened params into (f1, g1, f2, g2) tensors per batch.
+
+        Args:
+            params: [B, output_dim] flattened MLP outputs.
+        Returns:
+            f1: [B, dim_u1, 1]
+            g1: [B, dim_u1, dim_z]
+            f2: [B, dim_z, 1]
+            g2: [B, dim_z, dim_z]
+        """
+
+        B = params.shape[0]
+        idx = 0
+        f1 = params[:, idx : idx + self.dim_u1].view(B, self.dim_u1, 1)
+        idx += self.dim_u1
+        g1 = params[:, idx : idx + self.dim_u1 * self.dim_z].view(B, self.dim_u1, self.dim_z)
+        idx += self.dim_u1 * self.dim_z
+        f2 = params[:, idx : idx + self.dim_z].view(B, self.dim_z, 1)
+        idx += self.dim_z
+        g2 = params[:, idx : idx + self.dim_z * self.dim_z].view(B, self.dim_z, self.dim_z)
+        return f1, g1, f2, g2
+
+    def get_cgn_mats(self, u1: torch.Tensor):
+        """Return conditional (f1, g1, f2, g2) given u1.
+
+        Args:
+            u1: [B, dim_u1]
+        """
+
+        params = self.cond_net(u1)
+        return self._split_params(params)
 
     def forward(self, u_extended: torch.Tensor) -> torch.Tensor:
-        z = u_extended[:, self.dim_u1 :]
-        z = z.unsqueeze(-1)
-        u1_pred = self.f1 + self.g1 @ z
-        z_pred = self.f2 + self.g2 @ z
+        u1 = u_extended[:, : self.dim_u1]
+        z = u_extended[:, self.dim_u1 :].unsqueeze(-1)
+        f1, g1, f2, g2 = self.get_cgn_mats(u1)
+        u1_pred = f1 + torch.bmm(g1, z)
+        z_pred = f2 + torch.bmm(g2, z)
         return torch.cat([u1_pred.squeeze(-1), z_pred.squeeze(-1)], dim=-1)
-
-    def cgn(self):
-        """Return parameters (f1, g1, f2, g2) for filtering as in NSE reference."""
-        return self.f1, self.g1, self.f2, self.g2
 
 
 class _SubsetDataset(torch.utils.data.Dataset):
@@ -210,6 +251,7 @@ def compute_sigma_hat(
     sampler: ProbeSampler,
     encoder: ERA5Encoder,
     device: torch.device,
+    sigma_z_override: float | None = None,
 ):
     """Estimate sigma_hat via 1-step residuals (target from t+1, pred from t)."""
 
@@ -231,59 +273,124 @@ def compute_sigma_hat(
             diffs.append((target - preds).reshape(-1, dim_u1 + model_cgn.dim_z))
     diffs_cat = torch.cat(diffs, dim=0)
     sigma_hat = torch.sqrt(torch.mean(diffs_cat**2, dim=0))
+    if sigma_z_override is not None:
+        sigma_hat[sampler.dim_u1 :] = sigma_z_override
     return sigma_hat.cpu().numpy()
 
 
 def cg_filter_batch(cgn: DiscreteCGN, sigma: torch.Tensor, u1_seq: torch.Tensor):
-    """Batched closed-form filter from NSE reference.
+    """Closed-form filter aligning with Eq. (2.6): coeffs at ``u1[n]`` and
+    innovation from ``u1[n+1]``.
 
     Args:
-        cgn: DiscreteCGN module providing affine parameters.
+        cgn: conditional CGN module providing affine parameters.
         sigma: Tensor [dim_u1 + dim_z] with observation/latent noise std.
         u1_seq: Tensor [B, T, dim_u1] of probe observations.
 
     Returns:
-        mu_pred: [B, T, dim_z, 1] posterior mean sequence.
+        mu_pred: [B, T, dim_z, 1] posterior mean sequence with mu_pred[:, 0]
+            as the prior mean and subsequent entries following the predict-
+            update recursion.
         R_pred: [B, T, dim_z, dim_z] posterior covariance sequence.
     """
 
     device = u1_seq.device
     B, T, dim_u1 = u1_seq.shape
     dim_z = cgn.dim_z
-    s1 = torch.diag(sigma[:dim_u1]).to(device)
-    s2 = torch.diag(sigma[dim_u1:]).to(device)
+    sigma_u1 = sigma[:dim_u1].to(device)
+    sigma_z = sigma[dim_u1:].to(device)
+    D_inv = 1.0 / (sigma_u1**2 + 1e-6)
+    s2_cov = torch.diag(sigma_z**2).to(device)
+
     mu_pred = torch.zeros(B, T, dim_z, 1, device=device)
     R_pred = torch.zeros(B, T, dim_z, dim_z, device=device)
 
-    f1, g1, f2, g2 = cgn.cgn()
-    f1_b = f1.unsqueeze(0).to(device)
-    g1_b = g1.unsqueeze(0).to(device)
-    f2_b = f2.unsqueeze(0).to(device)
-    g2_b = g2.unsqueeze(0).to(device)
+    mu_pred[:, 0] = 0.0
+    R_pred[:, 0] = 0.01 * torch.eye(dim_z, device=device).unsqueeze(0)
+    eye_z = torch.eye(dim_z, device=device).unsqueeze(0)
 
-    mu0 = torch.zeros(B, dim_z, 1, device=device)
-    R0 = 0.01 * torch.eye(dim_z, device=device).unsqueeze(0).repeat(B, 1, 1)
-    eye_u1 = torch.eye(dim_u1, device=device)
+    for n in range(T - 1):
+        mu_n = mu_pred[:, n]
+        R_n = R_pred[:, n]
+        u1_n = u1_seq[:, n]
+        u1_np1 = u1_seq[:, n + 1]
 
-    for n in range(T):
-        u1n = u1_seq[:, n].unsqueeze(-1)  # [B, dim_u1, 1]
-        innov = u1n - f1_b - torch.bmm(g1_b, mu0)  # [B, dim_u1, 1]
-        R0g1T = torch.bmm(R0, g1_b.transpose(1, 2))
-        S = s1 @ s1.T + torch.bmm(g1_b, R0g1T)
-        S = S + 1e-6 * eye_u1  # stabilise inverse
-        invS = torch.linalg.inv(S)
-        gain_lat = torch.bmm(g2_b, R0g1T)
-        mu1 = f2_b + torch.bmm(g2_b, mu0) + torch.bmm(torch.bmm(gain_lat, invS), innov)
-        R1 = (
-            torch.bmm(torch.bmm(g2_b, R0), g2_b.transpose(1, 2))
-            + s2 @ s2.T
-            - torch.bmm(torch.bmm(gain_lat, invS), gain_lat.transpose(1, 2))
-        )
-        mu_pred[:, n] = mu1
-        R_pred[:, n] = R1
-        mu0 = mu1
-        R0 = R1
+        f1, g1, f2, g2 = cgn.get_cgn_mats(u1_n)
+        u1_obs = u1_np1.unsqueeze(-1)
+        mu_obs = f1 + torch.bmm(g1, mu_n)
+        innov = u1_obs - mu_obs  # innovation uses u1[n+1]
+
+        # Woodbury terms using current covariance R_n
+        Dinv = D_inv.view(1, dim_u1, 1)
+        Dinv_g1 = Dinv * g1
+        Gt_Dinv_G = torch.bmm(g1.transpose(1, 2), Dinv_g1)
+        Rn_inv = torch.linalg.inv(R_n + 1e-6 * eye_z)
+        M = Rn_inv + Gt_Dinv_G
+        M_inv = torch.linalg.inv(M + 1e-6 * eye_z)
+
+        def apply_Sinv(X: torch.Tensor) -> torch.Tensor:
+            """Apply S^{-1} = (D + G R G^T)^{-1} without building S."""
+
+            Dinv_X = Dinv * X
+            Gt_Dinv_X = torch.bmm(g1.transpose(1, 2), Dinv_X)
+            middle = torch.bmm(M_inv, Gt_Dinv_X)
+            correction = torch.bmm(Dinv_g1, middle)
+            return Dinv_X - correction
+
+        Rn_g1T = torch.bmm(R_n, g1.transpose(1, 2))
+        Sinv_innov = apply_Sinv(innov)
+        base_pred = f2 + torch.bmm(g2, mu_n)
+        correction = torch.bmm(torch.bmm(g2, Rn_g1T), Sinv_innov)
+        mu_next = base_pred + correction
+
+        gain_lat = torch.bmm(g2, Rn_g1T)
+        Sinv_g1Rn_g2T = apply_Sinv(torch.bmm(g1, torch.bmm(R_n, g2.transpose(1, 2))))
+        cov_correction = torch.bmm(gain_lat, Sinv_g1Rn_g2T)
+        R_next = torch.bmm(torch.bmm(g2, R_n), g2.transpose(1, 2)) + s2_cov - cov_correction
+
+        mu_pred[:, n + 1] = mu_next
+        R_pred[:, n + 1] = R_next
+
     return mu_pred, R_pred
+
+
+def _debug_filter_consistency():
+    """Manual check comparing Woodbury filter to a naive inverse version.
+
+    Not executed by default; useful for quick sanity checks on small dims to
+    ensure innovation indexing and Woodbury math match the direct formulation.
+    """
+
+    torch.manual_seed(0)
+    B, T, dim_u1, dim_z = 2, 4, 4, 3
+    cgn = DiscreteCGN(dim_u1, dim_z)
+    sigma = torch.rand(dim_u1 + dim_z) * 0.1 + 0.01
+    u1_seq = torch.rand(B, T, dim_u1)
+
+    def naive_filter(cgn_mod, sig, seq):
+        mu = torch.zeros(B, T, dim_z, 1)
+        R = torch.zeros(B, T, dim_z, dim_z)
+        R[:, 0] = 0.01 * torch.eye(dim_z).unsqueeze(0)
+        s1_cov = torch.diag(sig[:dim_u1] ** 2)
+        s2_cov = torch.diag(sig[dim_u1:] ** 2)
+        for n in range(T - 1):
+            f1, g1, f2, g2 = cgn_mod.get_cgn_mats(seq[:, n])
+            S = s1_cov + torch.bmm(g1, torch.bmm(R[:, n], g1.transpose(1, 2)))
+            Sinv = torch.linalg.inv(S + 1e-6 * torch.eye(dim_u1).unsqueeze(0))
+            innov = seq[:, n + 1].unsqueeze(-1) - (f1 + torch.bmm(g1, mu[:, n]))
+            K = torch.bmm(torch.bmm(g2, R[:, n]), torch.bmm(g1.transpose(1, 2), Sinv))
+            mu[:, n + 1] = f2 + torch.bmm(g2, mu[:, n]) + torch.bmm(K, innov)
+            R[:, n + 1] = (
+                torch.bmm(torch.bmm(g2, R[:, n]), g2.transpose(1, 2))
+                + s2_cov
+                - torch.bmm(K, torch.bmm(g1, torch.bmm(R[:, n], g2.transpose(1, 2))))
+            )
+        return mu, R
+
+    mu_wb, R_wb = cg_filter_batch(cgn, sigma, u1_seq)
+    mu_naive, R_naive = naive_filter(cgn, sigma, u1_seq)
+    assert torch.max(torch.abs(mu_wb - mu_naive)) < 1e-4
+    assert torch.max(torch.abs(R_wb - R_naive)) < 1e-4
 
 
 def compute_da_loss(
@@ -295,6 +402,7 @@ def compute_da_loss(
     sampler: ProbeSampler,
     da_horizon: int,
     da_warmup: int,
+    exclude_observed: bool = False,
 ):
     """Compute DA loss using the closed-form filter over an assimilation horizon.
 
@@ -307,15 +415,30 @@ def compute_da_loss(
     horizon = min(T, da_horizon)
     if horizon <= 1:
         return torch.tensor(0.0, device=frames.device)
-    warm = min(da_warmup, horizon)
+    warm = min(max(1, da_warmup), horizon - 1)
     frames_h = frames[:, :horizon]
     u1_seq = sampler.sample(frames_h)
     mu_pred, _ = cg_filter_batch(cgn, sigma_hat, u1_seq)
-    mu_flat = mu_pred.squeeze(-1)  # [B, horizon, dim_z]
+    mu_flat = mu_pred.squeeze(-1)
     decoded = decoder(mu_flat)
     if warm >= horizon:
         return torch.tensor(0.0, device=frames.device)
-    return F.mse_loss(decoded[:, warm:], frames_h[:, warm:])
+
+    if exclude_observed:
+        _, _, C, H, W = frames_h.shape
+        mask = torch.ones((1, 1, C, H, W), device=frames.device)
+        for (r, c) in sampler.coords:
+            for ch in sampler.channels:
+                mask[..., ch, r, c] = 0.0
+    else:
+        mask = 1.0
+
+    diff = (decoded[:, warm:] - frames_h[:, warm:]) * mask
+    if isinstance(mask, torch.Tensor):
+        denom = mask.sum() * max(1, horizon - warm) * frames.shape[0] + 1e-8
+    else:
+        denom = max(1, horizon - warm) * frames.shape[0] * frames.shape[2] * frames.shape[3] * frames.shape[4]
+    return (diff.pow(2).sum()) / denom
 
 
 def train_epoch(
@@ -334,6 +457,7 @@ def train_epoch(
     lambda_DA: float = 0.0,
     da_horizon: int = 0,
     da_warmup: int = 0,
+    da_exclude_observed: bool = False,
 ):
     encoder.train()
     decoder.train()
@@ -361,10 +485,15 @@ def train_epoch(
         pred_u1 = pred_stack[..., : sampler.dim_u1]
         pred_z = pred_stack[..., sampler.dim_u1 :]
 
+        # Physical-space forecast via decoding the predicted latent rollout
+        pred_frames = decoder(pred_z)
+
         target_u1 = sampler.sample(post_seq[:, :forward_step])
         target_z = z_target_seq[:, :forward_step]
+        target_frames = post_seq[:, :forward_step]
 
-        loss_forecast = F.mse_loss(pred_u1, target_u1)
+        # L_u combines probe forecast and decoded physical forecast
+        loss_forecast = F.mse_loss(pred_u1, target_u1) + F.mse_loss(pred_frames, target_frames)
         loss_latent = F.mse_loss(pred_z, target_z)
 
         loss = lam_ae * loss_ae + lam_forecast * loss_forecast + lam_latent * loss_latent
@@ -380,6 +509,7 @@ def train_epoch(
                 sampler,
                 da_horizon,
                 da_warmup,
+                exclude_observed=da_exclude_observed,
             )
             loss = loss + lambda_DA * loss_da
 
@@ -444,7 +574,7 @@ def train_stage1(args: argparse.Namespace):
     )
 
     best_loss = float("inf")
-    best_sigma = None
+    best_state = None
     for ep in range(1, args.stage1_epochs + 1):
         start = time.time()
         loss = train_epoch(
@@ -464,21 +594,38 @@ def train_stage1(args: argparse.Namespace):
         print(f"[Stage1] Epoch {ep}/{args.stage1_epochs} - loss {loss:.4f} - time {duration:.2f}s")
         if loss < best_loss:
             best_loss = loss
-            best_sigma = compute_sigma_hat(cgn, train_loader, sampler, encoder, args.device)
-            config = {
-                "dim_z": dim_z,
-                "dim_u1": sampler.dim_u1,
-                "use_channels": args.use_channels,
-                "obs_ratio": args.obs_ratio,
-                "forward_step": args.forward_step,
-                "model_name": args.model_name,
-                "lam_ae": args.lam_ae,
-                "lam_forecast": args.lam_forecast,
-                "lam_latent": args.lam_latent,
-                "seed": args.seed,
+            best_state = {
+                "encoder": copy.deepcopy(encoder.state_dict()),
+                "decoder": copy.deepcopy(decoder.state_dict()),
+                "cgn": copy.deepcopy(cgn.state_dict()),
             }
-            save_stage("stage1", args, encoder, decoder, cgn, best_sigma, coords, config)
-            print(f"[Stage1] Best checkpoint updated at epoch {ep} with loss {best_loss:.4f}")
+    if best_state is not None:
+        encoder.load_state_dict(best_state["encoder"])
+        decoder.load_state_dict(best_state["decoder"])
+        cgn.load_state_dict(best_state["cgn"])
+    best_sigma = compute_sigma_hat(
+        cgn,
+        train_loader,
+        sampler,
+        encoder,
+        args.device,
+        sigma_z_override=args.sigma_z_override,
+    )
+    config = {
+        "dim_z": dim_z,
+        "dim_u1": sampler.dim_u1,
+        "use_channels": args.use_channels,
+        "obs_ratio": args.obs_ratio,
+        "forward_step": args.forward_step,
+        "model_name": args.model_name,
+        "lam_ae": args.lam_ae,
+        "lam_forecast": args.lam_forecast,
+        "lam_latent": args.lam_latent,
+        "seed": args.seed,
+        "sigma_z_override": args.sigma_z_override,
+    }
+    save_stage("stage1", args, encoder, decoder, cgn, best_sigma, coords, config)
+    print(f"[Stage1] Best checkpoint saved with loss {best_loss:.4f}")
 
     print(f"[Stage1] Training complete. Best loss: {best_loss:.4f}")
 
@@ -526,6 +673,7 @@ def train_stage2(args: argparse.Namespace):
             lambda_DA=args.lambda_DA,
             da_horizon=args.da_horizon,
             da_warmup=args.da_warmup,
+            da_exclude_observed=args.da_exclude_observed,
         )
         duration = time.time() - start
         print(f"[Stage2] Epoch {ep}/{args.stage2_epochs} - loss {loss:.4f} - time {duration:.2f}s")
@@ -545,6 +693,8 @@ def train_stage2(args: argparse.Namespace):
                 "lambda_DA": args.lambda_DA,
                 "da_horizon": args.da_horizon,
                 "da_warmup": args.da_warmup,
+                "da_exclude_observed": args.da_exclude_observed,
+                "sigma_z_override": args.sigma_z_override,
                 "seed": args.seed,
             }
             save_stage("stage2", args, encoder, decoder, cgn, sigma_hat_np, coords, config)
@@ -561,12 +711,12 @@ def main():
     parser.add_argument("--model_name", type=str, default="discreteCGKN")
     parser.add_argument("--out_dir", type=str, default="../../../../results/discreteCGKN/ERA5")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--train_split", type=float, default=0.9)
-    parser.add_argument("--stage1_epochs", type=int, default=100)
-    parser.add_argument("--stage2_epochs", type=int, default=50)
-    parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--num_workers", type=int, default=2)
-    parser.add_argument("--forward_step", type=int, default=12)
+    parser.add_argument("--train_split", type=float, default=1.0)
+    parser.add_argument("--stage1_epochs", type=int, default=17)
+    parser.add_argument("--stage2_epochs", type=int, default=20)
+    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--num_workers", type=int, default=4)
+    parser.add_argument("--forward_step", type=int, default=3)
     parser.add_argument("--obs_ratio", type=float, default=0.15)
     parser.add_argument("--obs_layout", type=str, default="random")
     parser.add_argument("--min_spacing", type=int, default=4)
@@ -574,12 +724,29 @@ def main():
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--lam_ae", type=float, default=1.0)
     parser.add_argument("--lam_forecast", type=float, default=1.0)
-    parser.add_argument("--lam_latent", type=float, default=1.0)
-    parser.add_argument("--lambda_DA", type=float, default=1.0)
+    parser.add_argument("--lam_latent", type=float, default=0.5)
+    parser.add_argument("--lambda_DA", type=float, default=1.5)
     parser.add_argument("--da_horizon", type=int, default=50)
     parser.add_argument("--da_warmup", type=int, default=5)
+    parser.add_argument(
+        "--da_exclude_observed",
+        action="store_true",
+        default=False,
+        help="If set, mask out observed probe points when computing DA loss",
+    )
+    parser.add_argument(
+        "--sigma_z_override",
+        type=float,
+        default=None,
+        help="Optional override for latent sigma entries when estimating sigma_hat",
+    )
     parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--train_stage2", action="store_true", default=True)
+    parser.add_argument(
+        "--train_stage2",
+        action="store_true",
+        default=False,
+        help="Run stage2 training (requires stage1 checkpoints)",
+    )
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -594,3 +761,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# Updates aligned with the discrete CGKN paper:
+# - Filter innovation uses u1[n+1] with coefficients from u1[n] (Eq. 2.6).
+# - Stage1 adds physical-space forecast loss (L_u) alongside latent/probe terms.
+# - DA loss optionally masks observed probes and respects warm-up/cut-point timing.
