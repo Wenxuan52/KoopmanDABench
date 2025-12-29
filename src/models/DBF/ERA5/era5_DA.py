@@ -1,30 +1,61 @@
 """
-Data assimilation evaluation for DBF on ERA5, aligned with the CAE_Linear workflow.
+ERA5 data assimilation (DA) evaluation for the DBF model.
+
+The assimilation loop follows the convention used across the benchmark:
+- We assume access to ground-truth frames t=0..window_length.
+- The observation schedule is defined on **assimilation steps** such that
+  ``step=0`` corresponds to assimilating the observation at physical time ``t=1``.
+  Therefore ``step=k`` maps to ``t=k+1`` in the trajectory. This mirrors the
+  CAE_Linear evaluation workflow.
+
+Pipeline summary
+----------------
+1) Normalize the ground truth window and extract masked observations at all
+   times via ``ObservationMask``. Observation noise (if any) is added **after**
+   masking in the normalized space.
+2) Initialize latent prior ``N(0, init_cov I)`` and fuse it with the initial
+   observation (t=0) using the DBF Gaussian update that includes the
+   ``/ rho`` term in information form.
+3) For each assimilation step ``step=0..window_length-1``:
+   - Predict from ``t=step`` to ``t=step+1`` using the spectral Koopman operator.
+   - If ``step`` is in ``observation_schedule``, assimilate the observation at
+     ``t=step+1`` via the DBF update; otherwise keep the prediction.
+   - Decode the posterior mean to obtain the DA trajectory at ``t=step+1``.
+4) A no-DA baseline uses the same initialization (posterior at t=0) but only
+   propagates predictions without further updates.
+
+Outputs match CAE_Linear evaluation format:
+- Save the first DA trajectory (denormalized) to ``.../DA/multi.npy`` with shape
+  ``[window_length, C, H, W]`` corresponding to times ``t=1..window_length``.
+- Save mean/std metrics across runs to ``.../DA/multi_meanstd.npz`` with ``steps``
+  field ``1..window_length``.
 """
+
+from __future__ import annotations
 
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Iterable, Tuple
 
 import numpy as np
 import torch
 from skimage.metrics import structural_similarity as ssim
 
-# Register repo root
+# Ensure repository root is on path
 current_directory = os.getcwd()
 src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", "..", ".."))
 if src_directory not in sys.path:
     sys.path.append(src_directory)
 
-from src.utils.Dataset import ERA5Dataset
 from src.models.DBF.ERA5.era5_model import ERA5Decoder
 from src.models.DBF.ERA5.era5_trainer import (
-    ObservationMask,
     ERA5IOONetwork,
+    ObservationMask,
     SpectralKoopmanOperator,
     create_probe_mask,
 )
+from src.utils.Dataset import ERA5Dataset
 
 
 def set_seed(seed: int) -> None:
@@ -39,6 +70,7 @@ def set_device() -> torch.device:
 
 
 def safe_denorm(x: torch.Tensor, dataset: ERA5Dataset) -> torch.Tensor:
+    """Denormalize ERA5 tensors on CPU."""
     if isinstance(x, torch.Tensor):
         x_cpu = x.detach().cpu()
         min_val = dataset.min.reshape(-1, 1, 1)
@@ -53,6 +85,7 @@ def compute_metrics(
     groundtruth: torch.Tensor,
     dataset: ERA5Dataset,
 ) -> Dict[str, np.ndarray]:
+    """Compute per-step, per-channel MSE/RRMSE/SSIM for one run."""
     mse = []
     rrmse = []
     ssim_scores = []
@@ -106,17 +139,46 @@ def initial_latent_state(batch_size: int, num_pairs: int, device: torch.device, 
     return mean, cov
 
 
-def gaussian_update(mu_prior, cov_prior, mu_obs, cov_obs, epsilon: float):
+def _symmetrize(x: torch.Tensor) -> torch.Tensor:
+    return 0.5 * (x + x.transpose(-1, -2))
+
+
+def dbf_gaussian_update(
+    mu_prior: torch.Tensor,
+    cov_prior: torch.Tensor,
+    mu_r: torch.Tensor,
+    cov_r: torch.Tensor,
+    mu_rho: torch.Tensor,
+    cov_rho: torch.Tensor,
+    epsilon: float,
+    use_rho: bool = True,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """DBF Gaussian fusion in information form with optional /rho term."""
     eye = torch.eye(2, device=mu_prior.device).view(1, 1, 2, 2)
     cov_prior = cov_prior + epsilon * eye
-    cov_obs = cov_obs + epsilon * eye
-    cov_prior_inv = torch.linalg.inv(cov_prior)
-    cov_obs_inv = torch.linalg.inv(cov_obs)
-    cov_post_inv = cov_prior_inv + cov_obs_inv
-    cov_post = torch.linalg.inv(cov_post_inv)
-    fused_mean = torch.matmul(cov_prior_inv, mu_prior.unsqueeze(-1)) + torch.matmul(cov_obs_inv, mu_obs.unsqueeze(-1))
-    mu_post = torch.matmul(cov_post, fused_mean).squeeze(-1)
-    cov_post = 0.5 * (cov_post + cov_post.transpose(-1, -2))
+    cov_r = cov_r + epsilon * eye
+    cov_rho = cov_rho + epsilon * eye
+
+    precision_prior = torch.linalg.inv(cov_prior)
+    precision_r = torch.linalg.inv(cov_r)
+    precision_rho = torch.linalg.inv(cov_rho) if use_rho else torch.zeros_like(precision_prior)
+
+    precision_post = precision_prior + precision_r - precision_rho
+    precision_post = _symmetrize(precision_post)
+
+    # Ensure positive definiteness in case subtraction causes issues
+    eigvals = torch.linalg.eigvalsh(precision_post)
+    min_eig = eigvals.min().item()
+    if min_eig <= 0:
+        jitter = (abs(min_eig) + epsilon) * torch.ones_like(precision_post[..., 0, 0])
+        precision_post = precision_post + jitter.unsqueeze(-1).unsqueeze(-1) * torch.eye(2, device=mu_prior.device)
+
+    cov_post = torch.linalg.inv(precision_post)
+    info_vec = torch.matmul(precision_prior, mu_prior.unsqueeze(-1)) + torch.matmul(precision_r, mu_r.unsqueeze(-1))
+    if use_rho:
+        info_vec = info_vec - torch.matmul(precision_rho, mu_rho.unsqueeze(-1))
+    mu_post = torch.matmul(cov_post, info_vec).squeeze(-1)
+    cov_post = _symmetrize(cov_post)
     return mu_post, cov_post
 
 
@@ -131,7 +193,7 @@ def decode_pairs(decoder: ERA5Decoder, latent_pairs: torch.Tensor) -> torch.Tens
 def run_multi_da_experiment(
     obs_ratio: float = 0.15,
     obs_noise_std: float = 0.05,
-    observation_schedule = [0, 10, 20, 30, 40],
+    observation_schedule: Iterable[int] | None = None,
     observation_variance: float | None = None,
     window_length: int = 50,
     num_runs: int = 5,
@@ -139,7 +201,8 @@ def run_multi_da_experiment(
     start_T: int = 0,
     model_name: str = "DBF",
     checkpoint_name: str = "best_model.pt",
-):
+    use_rho: bool = True,
+) -> Dict[str, list]:
     set_seed(42)
     device = set_device()
     print(f"Using device: {device}")
@@ -156,8 +219,9 @@ def run_multi_da_experiment(
     rho_clip = float(cfg.get("rho_clip", 0.2))
     process_noise_init = float(cfg.get("process_noise_init", -2.0))
     hidden_dims = cfg.get("ioo_hidden_dims", [1024, 1024])
+    mask_seed = int(cfg.get("mask_seed", 1024))
 
-    # Dataset
+    # Dataset slice
     forward_step = 12
     dataset = ERA5Dataset(
         data_path="../../../../data/ERA5/ERA5_data/test_seq_state.h5",
@@ -183,7 +247,7 @@ def run_multi_da_experiment(
             height=dataset.H,
             width=dataset.W,
             rate=obs_ratio,
-            seed=int(cfg.get("mask_seed", 1024)),
+            seed=mask_seed,
         )
         observation_mask = ObservationMask(mask_tensor)
     observation_mask = observation_mask.to(device)
@@ -210,28 +274,48 @@ def run_multi_da_experiment(
     koopman.eval()
 
     num_pairs = koopman.num_pairs
+    print(f"Latent spectral pairs: {num_pairs}")
 
-    obs_all = observation_mask.sample(normalized_groundtruth.unsqueeze(0))  # [1, T, obs_dim]
+    normalized_gt_device = normalized_groundtruth.to(device)
+    obs_all = observation_mask.sample(normalized_gt_device.unsqueeze(0))  # [1, T, obs_dim]
     assert obs_all.shape[1] >= window_length + 1, "Insufficient observation frames for window"
+
+    if obs_noise_std:
+        obs_all = obs_all + torch.randn_like(obs_all) * obs_noise_std
+
+    if observation_schedule is None:
+        observation_schedule = list(range(window_length))
+    observation_schedule = set(observation_schedule)
 
     run_metrics = {"mse": [], "rrmse": [], "ssim": []}
     run_times = []
     first_run_states = None
 
+    cov_rho = init_cov * torch.eye(2, device=device).view(1, 1, 2, 2)
+    mu_rho = torch.zeros(1, num_pairs, 2, device=device)
+
     for run_idx in range(num_runs):
         print(f"\nStarting assimilation run {run_idx + 1}/{num_runs}")
         set_seed(42 + run_idx)
 
+        # Prepare observation sequence for t=1..window_length
         obs_sequence = obs_all[:, 1 : window_length + 1, :].clone()
-        if obs_noise_std:
-            obs_sequence = obs_sequence + torch.randn_like(obs_sequence) * obs_noise_std
 
         mu_prev, cov_prev = initial_latent_state(batch_size=1, num_pairs=num_pairs, device=device, init_cov=init_cov)
-        init_obs = obs_all[:, 0, :]
+        init_obs = obs_all[:, 0, :].to(device)
         mu_init_flat, sigma2_init_flat = ioo(init_obs)
         mu_init_pairs = mu_init_flat.view(1, num_pairs, 2)
         cov_init = torch.diag_embed(sigma2_init_flat.view(1, num_pairs, 2))
-        mu_prev, cov_prev = gaussian_update(mu_prev, cov_prev, mu_init_pairs, cov_init, cov_epsilon)
+        mu_prev, cov_prev = dbf_gaussian_update(
+            mu_prior=mu_prev,
+            cov_prior=cov_prev,
+            mu_r=mu_init_pairs,
+            cov_r=cov_init,
+            mu_rho=mu_rho,
+            cov_rho=cov_rho,
+            epsilon=cov_epsilon,
+            use_rho=use_rho,
+        )
 
         mu_noda_prev = mu_prev.clone()
         cov_noda_prev = cov_prev.clone()
@@ -248,7 +332,16 @@ def run_multi_da_experiment(
                 mu_obs_flat, sigma2_obs_flat = ioo(obs_t)
                 mu_obs_pairs = mu_obs_flat.view(1, num_pairs, 2)
                 cov_obs = torch.diag_embed(sigma2_obs_flat.view(1, num_pairs, 2))
-                mu_post, cov_post = gaussian_update(mu_prior, cov_prior, mu_obs_pairs, cov_obs, cov_epsilon)
+                mu_post, cov_post = dbf_gaussian_update(
+                    mu_prior=mu_prior,
+                    cov_prior=cov_prior,
+                    mu_r=mu_obs_pairs,
+                    cov_r=cov_obs,
+                    mu_rho=mu_rho,
+                    cov_rho=cov_rho,
+                    epsilon=cov_epsilon,
+                    use_rho=use_rho,
+                )
             else:
                 mu_post, cov_post = mu_prior, cov_prior
 
@@ -274,12 +367,12 @@ def run_multi_da_experiment(
         run_times.append(0.0)
         print(f"Run {run_idx + 1} completed.")
 
-    save_dir = f"../../../../results/{model_name}/ERA5/DA"
+    save_dir = Path(f"../../../../results/{model_name}/ERA5/DA")
     os.makedirs(save_dir, exist_ok=True)
 
     if first_run_states is not None:
-        np.save(os.path.join(save_dir, "multi.npy"), safe_denorm(first_run_states, dataset).numpy())
-        print(f"Saved DA trajectory to {os.path.join(save_dir, 'multi.npy')}")
+        np.save(save_dir / "multi.npy", safe_denorm(first_run_states, dataset).numpy())
+        print(f"Saved DA trajectory to {save_dir / 'multi.npy'}")
 
     metrics_meanstd = {}
     for key in run_metrics:
@@ -288,12 +381,12 @@ def run_multi_da_experiment(
         metrics_meanstd[f"{key}_std"] = metric_array.std(axis=0)
 
     np.savez(
-        os.path.join(save_dir, "multi_meanstd.npz"),
+        save_dir / "multi_meanstd.npz",
         **metrics_meanstd,
         steps=np.arange(1, window_length + 1),
         metrics=["MSE", "RRMSE", "SSIM"],
     )
-    print(f"Saved mean/std metrics to {os.path.join(save_dir, 'multi_meanstd.npz')}")
+    print(f"Saved mean/std metrics to {save_dir / 'multi_meanstd.npz'}")
 
     for key in ["mse", "rrmse", "ssim"]:
         run_values = [m.mean() for m in run_metrics[key]]
@@ -302,7 +395,6 @@ def run_multi_da_experiment(
         )
 
     print(f"Average assimilation time: {np.mean(run_times):.2f}s over {num_runs} runs")
-
     return run_metrics
 
 
