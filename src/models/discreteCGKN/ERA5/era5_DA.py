@@ -62,8 +62,10 @@ def parse_schedule(schedule_arg: str | None, window_length: int) -> List[int]:
 
 
 def safe_denorm(x: torch.Tensor, dataset: ERA5Dataset) -> torch.Tensor:
-    min_v = dataset.min.reshape(1, -1, 1, 1)
-    max_v = dataset.max.reshape(1, -1, 1, 1)
+    """Denormalize while matching the input device to avoid device mismatch."""
+
+    min_v = torch.as_tensor(dataset.min, device=x.device).reshape(1, -1, 1, 1)
+    max_v = torch.as_tensor(dataset.max, device=x.device).reshape(1, -1, 1, 1)
     return x * (max_v - min_v + 1e-6) + min_v
 
 
@@ -89,8 +91,10 @@ def compute_metrics(da_states: torch.Tensor, noda_states: torch.Tensor, groundtr
             rrmse_step.append(((diff_da.sum() / denom).sqrt().item(), (diff_noda.sum() / denom).sqrt().item()))
             data_range = (gt[c].max() - gt[c].min()).item()
             if data_range > 0:
-                ssim_da = ssim(gt[c].numpy(), da[c].numpy(), data_range=data_range)
-                ssim_noda = ssim(gt[c].numpy(), noda[c].numpy(), data_range=data_range)
+                print(gt[c].detach().numpy().shape)
+                print(da[c].detach().numpy().shape)
+                ssim_da = ssim(gt[c].detach().numpy(), da[c].detach().numpy(), data_range=data_range)
+                ssim_noda = ssim(gt[c].detach().numpy(), noda[c].detach().numpy(), data_range=data_range)
             else:
                 ssim_da = 1.0
                 ssim_noda = 1.0
@@ -166,17 +170,23 @@ def apply_filter_step(
         return mat + eps * eye
 
     def solve_spd(mat: torch.Tensor, rhs: torch.Tensor) -> torch.Tensor:
-        # Solve mat @ x = rhs for SPD mat using cholesky; fall back to pinv if needed.
-        for jitter in (1e-4, 1e-3, 1e-2):
+        """Solve mat @ x = rhs assuming mat is (near) SPD.
+
+        Uses progressively larger jittered Cholesky solves; if they all fail,
+        falls back to a diagonal solve to avoid SVD/pseudo-inverse instability
+        on ill-conditioned batches.
+        """
+
+        for jitter in (1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1):
             mat_spd = symmetrize_jitter(mat, eps=jitter)
             L, info = torch.linalg.cholesky_ex(mat_spd)
             if info.max().item() == 0:
                 return torch.cholesky_solve(rhs, L)
-        # Fall back to pseudo-inverse with additional jitter if Cholesky keeps failing.
-        mat_spd = symmetrize_jitter(mat, eps=1e-1)
-        return torch.matmul(torch.linalg.pinv(mat_spd), rhs)
+        # Diagonal fallback: treat mat as diagonal dominant
+        mat_diag = torch.diagonal(mat_spd, dim1=-2, dim2=-1) + 1e-3
+        return rhs / mat_diag.unsqueeze(-1)
 
-    R = symmetrize_jitter(R)
+    R = symmetrize_jitter(R, eps=1e-4)
 
     f1, g1, f2, g2 = cgn.get_cgn_mats(u_cond)
 
@@ -317,7 +327,7 @@ def run_multi_da_experiment(
     schedule = parse_schedule(observation_schedule, window_length)
 
     dataset = ERA5Dataset(data_path=data_path, seq_length=window_length, min_path=min_path, max_path=max_path)
-    denorm = dataset.denormalizer()
+    denorm = lambda t: safe_denorm(t, dataset)
 
     results_dir = Path("../../../../results") / model_name / "ERA5"
     ckpt_dir = results_dir
@@ -414,7 +424,7 @@ def main():
     parser.add_argument("--observation_schedule", type=str, default=None, help="Comma-separated indices over window steps")
     parser.add_argument("--observation_variance", type=float, default=None)
     parser.add_argument("--window_length", type=int, default=50)
-    parser.add_argument("--num_runs", type=int, default=5)
+    parser.add_argument("--num_runs", type=int, default=1)
     parser.add_argument("--start_T", type=int, default=0)
     parser.add_argument("--model_name", type=str, default="discreteCGKN")
     parser.add_argument("--data_path", type=str, default="../../../../data/ERA5/ERA5_data/test_seq_state.h5")
