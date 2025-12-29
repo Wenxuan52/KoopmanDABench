@@ -168,12 +168,12 @@ DEFAULT_CONFIG: Dict[str, object] = {
     "recon_sigma2": 1e-2,
     "obs_noise_std": 0.05,
     "train_decoder": True,
-    "init_cov": 1.0,
+    "init_cov": 100.0,
     "rho_clip": 0.2,
     "process_noise_init": -2.0,
     "cov_epsilon": 1e-6,
     "use_rho": True,
-    "rho_var": 1.0,
+    "rho_var": 1e8,
 }
 
 
@@ -311,10 +311,15 @@ class ERA5DBFTrainer:
         self.kl_beta = float(config.get("kl_beta", 1.0))
         self.recon_sigma2 = float(config.get("recon_sigma2", 1e-2))
         self.obs_noise_std = float(config.get("obs_noise_std", 0.0))
-        self.init_cov = float(config.get("init_cov", 1.0))
+        self.init_cov = float(config.get("init_cov", DEFAULT_CONFIG["init_cov"]))
         self.cov_epsilon = float(config.get("cov_epsilon", 1e-6))
         self.use_rho = bool(config.get("use_rho", True))
-        self.rho_var = float(config.get("rho_var", self.init_cov))
+        self.rho_var = float(config.get("rho_var", DEFAULT_CONFIG["rho_var"]))
+
+        # Cached virtual prior precision (V^{-1}) and mean block (m) following DBF reference.
+        eye2 = torch.eye(2, device=self.device).view(1, 1, 2, 2)
+        self.V_inv_block = (1.0 / self.rho_var) * eye2
+        self.m_block = torch.zeros(1, self.koopman.num_pairs, 2, device=self.device)
 
         self.best_val_loss = float("inf")
         self.epochs_without_improve = 0
@@ -336,20 +341,19 @@ class ERA5DBFTrainer:
         cov_prior = self._symmetrize(cov_prior) + self.cov_epsilon * eye
         cov_obs = self._symmetrize(cov_obs) + self.cov_epsilon * eye
 
-        cov_rho = None
-        mu_rho = None
-        if self.use_rho:
-            cov_rho = self.rho_var * eye.expand_as(cov_prior)
-            mu_rho = torch.zeros_like(mu_prior)
-            cov_rho = self._symmetrize(cov_rho) + self.cov_epsilon * eye
-
         precision_prior = torch.linalg.inv(cov_prior)
-        precision_obs = torch.linalg.inv(cov_obs)
-        precision_rho = torch.zeros_like(precision_prior)
         if self.use_rho:
-            precision_rho = torch.linalg.inv(cov_rho)
+            V_inv = self.V_inv_block.to(mu_prior.device).expand_as(cov_prior)
+            m_rho = self.m_block.to(mu_prior.device).expand_as(mu_prior)
+            # Stabilized observation precision per DBF reference: inv(G) + V_inv.
+            precision_obs = torch.linalg.inv(cov_obs) + V_inv
+            precision_post = precision_prior + precision_obs - V_inv
+        else:
+            precision_obs = torch.linalg.inv(cov_obs)
+            precision_post = precision_prior + precision_obs
+            V_inv = None
+            m_rho = None
 
-        precision_post = precision_prior + precision_obs - precision_rho
         precision_post = self._symmetrize(precision_post)
 
         eigvals = torch.linalg.eigvalsh(precision_post)
@@ -361,7 +365,7 @@ class ERA5DBFTrainer:
         cov_post = torch.linalg.inv(precision_post)
         info_vec = torch.matmul(precision_prior, mu_prior.unsqueeze(-1)) + torch.matmul(precision_obs, mu_obs.unsqueeze(-1))
         if self.use_rho:
-            info_vec = info_vec - torch.matmul(precision_rho, mu_rho.unsqueeze(-1))
+            info_vec = info_vec - torch.matmul(V_inv, m_rho.unsqueeze(-1))
         mu_post = torch.matmul(cov_post, info_vec).squeeze(-1)
         cov_post = self._symmetrize(cov_post)
         return mu_post, cov_post
