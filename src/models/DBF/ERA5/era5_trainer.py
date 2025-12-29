@@ -172,6 +172,8 @@ DEFAULT_CONFIG: Dict[str, object] = {
     "rho_clip": 0.2,
     "process_noise_init": -2.0,
     "cov_epsilon": 1e-6,
+    "use_rho": True,
+    "rho_var": 1.0,
 }
 
 
@@ -311,6 +313,8 @@ class ERA5DBFTrainer:
         self.obs_noise_std = float(config.get("obs_noise_std", 0.0))
         self.init_cov = float(config.get("init_cov", 1.0))
         self.cov_epsilon = float(config.get("cov_epsilon", 1e-6))
+        self.use_rho = bool(config.get("use_rho", True))
+        self.rho_var = float(config.get("rho_var", self.init_cov))
 
         self.best_val_loss = float("inf")
         self.epochs_without_improve = 0
@@ -323,23 +327,49 @@ class ERA5DBFTrainer:
         cov = self.init_cov * base_cov.expand(batch_size, num_pairs, 2, 2).clone()
         return mean, cov
 
+    def _symmetrize(self, x: torch.Tensor) -> torch.Tensor:
+        return 0.5 * (x + x.transpose(-1, -2))
+
     def _gaussian_update(self, mu_prior, cov_prior, mu_obs, cov_obs):
+        """Gaussian fusion with optional DBF ``/ rho`` term in information form."""
         eye = torch.eye(2, device=mu_prior.device).view(1, 1, 2, 2)
-        cov_prior = cov_prior + self.cov_epsilon * eye
-        cov_obs = cov_obs + self.cov_epsilon * eye
-        cov_prior_inv = torch.linalg.inv(cov_prior)
-        cov_obs_inv = torch.linalg.inv(cov_obs)
-        cov_post_inv = cov_prior_inv + cov_obs_inv
-        cov_post = torch.linalg.inv(cov_post_inv)
-        fused_mean = torch.matmul(cov_prior_inv, mu_prior.unsqueeze(-1)) + torch.matmul(cov_obs_inv, mu_obs.unsqueeze(-1))
-        mu_post = torch.matmul(cov_post, fused_mean).squeeze(-1)
-        cov_post = 0.5 * (cov_post + cov_post.transpose(-1, -2))
+        cov_prior = self._symmetrize(cov_prior) + self.cov_epsilon * eye
+        cov_obs = self._symmetrize(cov_obs) + self.cov_epsilon * eye
+
+        cov_rho = None
+        mu_rho = None
+        if self.use_rho:
+            cov_rho = self.rho_var * eye.expand_as(cov_prior)
+            mu_rho = torch.zeros_like(mu_prior)
+            cov_rho = self._symmetrize(cov_rho) + self.cov_epsilon * eye
+
+        precision_prior = torch.linalg.inv(cov_prior)
+        precision_obs = torch.linalg.inv(cov_obs)
+        precision_rho = torch.zeros_like(precision_prior)
+        if self.use_rho:
+            precision_rho = torch.linalg.inv(cov_rho)
+
+        precision_post = precision_prior + precision_obs - precision_rho
+        precision_post = self._symmetrize(precision_post)
+
+        eigvals = torch.linalg.eigvalsh(precision_post)
+        min_eig = eigvals.min().item()
+        if min_eig <= 0:
+            jitter = (abs(min_eig) + self.cov_epsilon)
+            precision_post = precision_post + jitter * eye
+
+        cov_post = torch.linalg.inv(precision_post)
+        info_vec = torch.matmul(precision_prior, mu_prior.unsqueeze(-1)) + torch.matmul(precision_obs, mu_obs.unsqueeze(-1))
+        if self.use_rho:
+            info_vec = info_vec - torch.matmul(precision_rho, mu_rho.unsqueeze(-1))
+        mu_post = torch.matmul(cov_post, info_vec).squeeze(-1)
+        cov_post = self._symmetrize(cov_post)
         return mu_post, cov_post
 
     def _gaussian_kl(self, mu_post, cov_post, mu_prior, cov_prior):
         eye = torch.eye(2, device=mu_post.device).view(1, 1, 2, 2)
-        cov_prior = cov_prior + self.cov_epsilon * eye
-        cov_post = cov_post + self.cov_epsilon * eye
+        cov_prior = self._symmetrize(cov_prior) + self.cov_epsilon * eye
+        cov_post = self._symmetrize(cov_post) + self.cov_epsilon * eye
         cov_prior_inv = torch.linalg.inv(cov_prior)
         diff = (mu_post - mu_prior).unsqueeze(-1)
         trace_term = torch.einsum("bpij,bpji->bp", cov_prior_inv, cov_post)
@@ -361,6 +391,9 @@ class ERA5DBFTrainer:
     def _process_batch(self, seq_batch: torch.Tensor, training: bool):
         seq_batch = seq_batch.to(self.device)
         obs_all = self.observation_mask.sample(seq_batch)
+        assert (
+            obs_all.shape[-1] == self.observation_mask.obs_dim
+        ), "Observation dimension mismatch with mask"
         if training and self.obs_noise_std > 0:
             obs_all = obs_all + torch.randn_like(obs_all) * self.obs_noise_std
 
@@ -375,12 +408,19 @@ class ERA5DBFTrainer:
             mu_obs_flat, sigma2_obs_flat = self.ioo(obs_t)
             mu_obs_pairs = mu_obs_flat.view(batch_size, self.koopman.num_pairs, 2)
             cov_obs = torch.diag_embed(sigma2_obs_flat.view(batch_size, self.koopman.num_pairs, 2))
+            assert mu_obs_pairs.shape[-2:] == (self.koopman.num_pairs, 2), "Unexpected latent mean shape"
+            assert cov_obs.shape[-2:] == (2, 2), "Unexpected latent covariance shape"
 
-            mu_prior, cov_prior = self.koopman.predict(mu_prev, cov_prev)
+            if t == 0:
+                # Filtering alignment: initial prior is N(0, init_cov I) updated directly with o_0.
+                mu_prior, cov_prior = mu_prev, cov_prev
+            else:
+                mu_prior, cov_prior = self.koopman.predict(mu_prev, cov_prev)
             mu_post, cov_post = self._gaussian_update(mu_prior, cov_prior, mu_obs_pairs, cov_obs)
 
             recon = self._decode(mu_post)
             target = seq_batch[:, t, :, :, :]
+            # Reconstruction is aligned with the filtering posterior after assimilating o_t.
             n_elements = target[0].numel()
             const_term = 0.5 * math.log(2 * math.pi * self.recon_sigma2) * n_elements
             mse_term = ((target - recon) ** 2).reshape(batch_size, -1).sum(dim=-1) / (2 * self.recon_sigma2)
