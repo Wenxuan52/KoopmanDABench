@@ -1,8 +1,8 @@
 #!/bin/bash -l
 
 #SBATCH --job-name=era5_dbf
-#SBATCH --partition=dgxl_irp
-#SBATCH --qos=dgxl_irp_high
+#SBATCH --partition=root
+#SBATCH --qos=long
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=40G
@@ -10,8 +10,8 @@
 #SBATCH -e era5_dbf.err
 #SBATCH -o era5_dbf.out
 
-source /scratch_dgxl/wy524/miniconda3/etc/profile.d/conda.sh
-conda activate irp-env
+source /scratch_root/wy524/miniconda3/etc/profile.d/conda.sh
+conda activate koopmanda
 
 cd src/models/DBF/ERA5/
 
