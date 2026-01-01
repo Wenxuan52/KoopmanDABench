@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import importlib
+import sys
 import os
 import time
 from pathlib import Path
@@ -17,6 +18,11 @@ from typing import Dict, Iterable, Sequence
 import numpy as np
 from skimage.metrics import structural_similarity as ssim
 import torch
+
+current_directory = os.getcwd()
+src_directory = os.path.abspath(os.path.join(current_directory, "..", ".."))
+if src_directory not in sys.path:
+    sys.path.append(src_directory)
 
 from src.utils.Dataset import ERA5Dataset
 
