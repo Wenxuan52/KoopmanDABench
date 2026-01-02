@@ -271,6 +271,7 @@ def run_da_single(
     dim_u1 = sampler.dim_u1
     assert sigma_hat.shape[0] == dim_u1 + dim_z, "sigma_hat dim mismatch"
 
+    frames = torch.nan_to_num(frames, nan=0.0, posinf=0.0, neginf=0.0)
     frames_b = frames.unsqueeze(0).to(device)
 
     mu0 = encoder(frames_b[:, :1]).squeeze(1).unsqueeze(-1)  # [1, dim_z, 1]
@@ -278,6 +279,14 @@ def run_da_single(
 
     # Initial probe from t=0 for conditioning
     u1_hold = sampler.sample(frames_b[:, :1])[:, 0]
+    if debug:
+        print(
+            "[DEBUG] Initial states",
+            _tensor_summary("mu0", mu0),
+            _tensor_summary("u1_hold", u1_hold),
+            _tensor_summary("sigma_hat", sigma_hat),
+            sep="\n",
+        )
     mu = mu0
     R = R0
 
@@ -308,12 +317,16 @@ def run_da_single(
         if has_obs:
             u1_hold = u_obs  # update hold for next step conditioning
         # decode_mu returns [B, C, H, W]; drop the batch dimension for metric alignment
-        preds.append(decode_mu(decoder, mu).squeeze(0))
+        da_frame = decode_mu(decoder, mu).squeeze(0)
+        da_frame = torch.nan_to_num(da_frame, nan=0.0, posinf=0.0, neginf=0.0)
+        preds.append(da_frame)
 
         # No-DA branch: pure rollout
         u_next = cgn(u_state)
         noda_mu = u_next[:, dim_u1:]
-        noda_preds.append(decode_mu(decoder, noda_mu.unsqueeze(-1)).squeeze(0))
+        noda_frame = decode_mu(decoder, noda_mu.unsqueeze(-1)).squeeze(0)
+        noda_frame = torch.nan_to_num(noda_frame, nan=0.0, posinf=0.0, neginf=0.0)
+        noda_preds.append(noda_frame)
         u_state = u_next
 
         if debug:
@@ -324,6 +337,14 @@ def run_da_single(
                     _tensor_summary("R", R.cpu()),
                     _tensor_summary("u_cond", u_cond.cpu()),
                     _tensor_summary("u_obs" if has_obs else "u_obs(None)", (u_obs if u_obs is not None else torch.tensor(0)).cpu()),
+                    sep="\n",
+                )
+            elif (not torch.isfinite(da_frame).all()) or (not torch.isfinite(noda_frame).all()):
+                print(f"[WARN] Decoder produced non-finite frame at step {k}")
+                print(
+                    _tensor_summary("mu", mu.cpu()),
+                    _tensor_summary("da_frame", da_frame.cpu()),
+                    _tensor_summary("noda_frame", noda_frame.cpu()),
                     sep="\n",
                 )
             elif k == 0:
@@ -358,6 +379,11 @@ def run_multi_da_experiment(
     schedule = parse_schedule(observation_schedule, window_length)
 
     dataset = ERA5Dataset(data_path=data_path, seq_length=window_length, min_path=min_path, max_path=max_path)
+    if debug:
+        print(
+            f"[DEBUG] Dataset loaded: len={len(dataset)}, seq_length={window_length}, "
+            f"min finite={np.isfinite(dataset.min).all()}, max finite={np.isfinite(dataset.max).all()}"
+        )
     denorm = lambda t: safe_denorm(t, dataset)
 
     results_dir = Path("../../../../results") / model_name / "ERA5"
@@ -370,6 +396,14 @@ def run_multi_da_experiment(
     sigma_hat = torch.from_numpy(np.load(sigma_file)).to(device_t)
     if not torch.isfinite(sigma_hat).all():
         raise RuntimeError(_tensor_summary("sigma_hat", sigma_hat))
+    if debug:
+        print(
+            f"[DEBUG] Loaded sigma_hat from {sigma_file}",
+            _tensor_summary("sigma_hat", sigma_hat),
+            f"Probe file: {probe_file}",
+            f"Schedule: {schedule}",
+            sep="\n",
+        )
 
     # load channels/dim_z from saved config if present to avoid mismatch
     config_path = ckpt_dir / f"{ckpt_prefix}_config.json"
@@ -415,15 +449,36 @@ def run_multi_da_experiment(
             debug=debug,
         )
         gt = full_seq[1 : window_length + 1]
-        da_runs.append(denorm(da_pred).cpu())
-        noda_runs.append(denorm(noda_pred).cpu())
-        gt_runs.append(denorm(gt).cpu())
+        denorm_da = torch.nan_to_num(denorm(da_pred), nan=0.0, posinf=0.0, neginf=0.0)
+        denorm_noda = torch.nan_to_num(denorm(noda_pred), nan=0.0, posinf=0.0, neginf=0.0)
+        denorm_gt = torch.nan_to_num(denorm(gt), nan=0.0, posinf=0.0, neginf=0.0)
+        da_runs.append(denorm_da.cpu())
+        noda_runs.append(denorm_noda.cpu())
+        gt_runs.append(denorm_gt.cpu())
+        if debug:
+            print(
+                f"[DEBUG] Run {i}:" ,
+                _tensor_summary("denorm_da", denorm_da),
+                _tensor_summary("denorm_noda", denorm_noda),
+                _tensor_summary("denorm_gt", denorm_gt),
+                sep="\n",
+            )
 
     da_stack = torch.stack(da_runs)  # [num_runs, T, C, H, W]
     noda_stack = torch.stack(noda_runs)
     gt_stack = torch.stack(gt_runs)
 
-    run_metrics = [compute_metrics(da_stack[i], noda_stack[i], gt_stack[i]) for i in range(num_runs)]
+    run_metrics: List[Dict[str, np.ndarray]] = []
+    for i in range(num_runs):
+        metrics_i = compute_metrics(da_stack[i], noda_stack[i], gt_stack[i])
+        for key in metrics_i:
+            if not np.isfinite(metrics_i[key]).all():
+                if debug:
+                    mask = ~np.isfinite(metrics_i[key])
+                    bad_idx = np.argwhere(mask)
+                    print(f"[WARN] Non-finite {key} entries for run {i}, first positions: {bad_idx[:5]}")
+                metrics_i[key] = np.nan_to_num(metrics_i[key], nan=0.0, posinf=0.0, neginf=0.0)
+        run_metrics.append(metrics_i)
     mse_mean = np.mean([rm["mse"] for rm in run_metrics], axis=0)
     mse_std = np.std([rm["mse"] for rm in run_metrics], axis=0)
     rrmse_mean = np.mean([rm["rrmse"] for rm in run_metrics], axis=0)
