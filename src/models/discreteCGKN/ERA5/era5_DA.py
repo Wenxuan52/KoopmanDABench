@@ -20,7 +20,7 @@ import torch
 from skimage.metrics import structural_similarity as ssim
 
 # Force matplotlib to use a writable cache directory to avoid permission errors
-os.environ["MPLCONFIGDIR"] = "/tmp/matplotlib_config"
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib_config")
 
 # Ensure project root is importable
 current_directory = os.getcwd()
@@ -205,13 +205,30 @@ def stabilize_cov(
 def solve_psd(mat: torch.Tensor, rhs: torch.Tensor) -> torch.Tensor:
     mat = 0.5 * (mat + mat.transpose(-1, -2))
     eye = torch.eye(mat.shape[-1], device=mat.device).unsqueeze(0)
-    jitters = (0.0, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1)
+    jitters = (0.0, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0)
     for jitter in jitters:
         mat_try = mat + jitter * eye
         L, info = torch.linalg.cholesky_ex(mat_try)
         if int(info.max().item()) == 0:
             return torch.cholesky_solve(rhs, L)
-    return torch.linalg.solve(mat + 1e-1 * eye, rhs)
+
+    # Eigenvalue clamp fallback for nearly singular matrices
+    for jitter in jitters[1:]:
+        try:
+            mat_try = mat + jitter * eye
+            evals, evecs = torch.linalg.eigh(mat_try)
+            evals = evals.clamp_min(1e-8)
+            mat_psd = (evecs * evals.unsqueeze(-2)) @ evecs.transpose(-2, -1)
+            mat_psd = 0.5 * (mat_psd + mat_psd.transpose(-1, -2))
+            L, info = torch.linalg.cholesky_ex(mat_psd)
+            if int(info.max().item()) == 0:
+                return torch.cholesky_solve(rhs, L)
+        except torch.linalg.LinAlgError:
+            continue
+
+    # Least-squares solve as last resort to avoid singular solve failures
+    sol, *_ = torch.linalg.lstsq(mat + jitters[-1] * eye, rhs)
+    return sol
 
 
 def apply_filter_step(
