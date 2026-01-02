@@ -26,6 +26,14 @@ if src_directory not in sys.path:
 
 from src.utils.Dataset import ERA5Dataset
 
+from src.models.CAE_Koopman.ERA5.era5_DA import run_multi_da_experiment as Koopman_DA
+from src.models.CAE_Linear.ERA5.era5_DA import run_multi_da_experiment as LINEAR_DA
+from src.models.CAE_Weaklinear.ERA5.era5_DA import run_multi_da_experiment as WEAKLINEAR_DA
+from src.models.CAE_MLP.ERA5.era5_DA import run_multi_da_experiment as MLP_DA
+from src.models.DMD.ERA5.era5_DA import run_multi_da_experiment as DMD_DA
+from src.models.discreteCGKN.ERA5.era5_DA import run_multi_da_experiment as DISCRETECGKN_DA
+from src.models.DBF.ERA5.era5_DA import run_multi_da_experiment as DBF_DA
+
 
 def compute_channel_metrics(
     da_states: np.ndarray, groundtruth: np.ndarray
@@ -122,36 +130,43 @@ def main():
         .numpy()
     )
 
+    # Directly use imported DA entry points
     models: Sequence[Dict[str, object]] = [
         {
             "name": "CAE_Koopman",
-            "module": "src.models.CAE_Koopman.ERA5.era5_DA",
+            "run_fn": Koopman_DA,
             "working_dir": repo_root / "src/models/CAE_Koopman/ERA5",
+            "result_dir": "CAE_Koopman",
         },
         {
             "name": "CAE_Linear",
-            "module": "src.models.CAE_Linear.ERA5.era5_DA",
+            "run_fn": LINEAR_DA,
             "working_dir": repo_root / "src/models/CAE_Linear/ERA5",
+            "result_dir": "CAE_Linear",
         },
         {
             "name": "CAE_Weaklinear",
-            "module": "src.models.CAE_Weaklinear.ERA5.era5_DA",
+            "run_fn": WEAKLINEAR_DA,
             "working_dir": repo_root / "src/models/CAE_Weaklinear/ERA5",
+            "result_dir": "CAE_Weaklinear",
         },
         {
             "name": "CAE_MLP",
-            "module": "src.models.CAE_MLP.ERA5.era5_DA",
+            "run_fn": MLP_DA,
             "working_dir": repo_root / "src/models/CAE_MLP/ERA5",
+            "result_dir": "CAE_MLP",
         },
         {
             "name": "DMD",
-            "module": "src.models.DMD.ERA5.era5_DA",
+            "run_fn": DMD_DA,
             "working_dir": repo_root / "src/models/DMD/ERA5",
+            "result_dir": "DMD",
         },
         {
             "name": "discreteCGKN",
-            "module": "src.models.discreteCGKN.ERA5.era5_DA",
+            "run_fn": DISCRETECGKN_DA,
             "working_dir": repo_root / "src/models/discreteCGKN/ERA5",
+            "result_dir": "discreteCGKN",
             "extra_args": {
                 "data_path": "../../../../data/ERA5/ERA5_data/test_seq_state.h5",
                 "min_path": "../../../../data/ERA5/ERA5_data/min_val.npy",
@@ -161,26 +176,29 @@ def main():
         },
         {
             "name": "DBF",
-            "module": "src.models.DBF.ERA5.era5_DA",
+            "run_fn": DBF_DA,
             "working_dir": repo_root / "src/models/DBF/ERA5",
+            "result_dir": "DBF",
             "extra_args": {"use_rho": True},
         },
     ]
 
     for model in models:
-        name = model["name"]
+        name = str(model["name"])
+        run_fn = model["run_fn"]
+        working_dir = Path(model["working_dir"])
+        result_dir = str(model.get("result_dir", name))
+        extra_args = dict(model.get("extra_args", {}))
+
         print(f"\n===== Running {name} ERA5 DA experiment =====")
 
-        module = importlib.import_module(model["module"])
-        run_fn = getattr(module, "run_multi_da_experiment")
-
         start_time = time.perf_counter()
-        with working_directory(model["working_dir"]):
-            run_fn(**base_kwargs, **model.get("extra_args", {}))
+        with working_directory(working_dir):
+            run_fn(**base_kwargs, **extra_args)
         elapsed = time.perf_counter() - start_time
         print(f"{name} wall time: {elapsed:.2f}s")
 
-        result_path = repo_root / "results" / name / "ERA5" / "DA" / "multi.npy"
+        result_path = repo_root / "results" / result_dir / "ERA5" / "DA" / "multi.npy"
         if not result_path.exists():
             print(f"No results found at {result_path}, skipping metric summary.")
             continue

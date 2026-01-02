@@ -149,7 +149,7 @@ def run_multi_da_experiment(
 
     # observation_schedule = [0, 10, 20, 30, 40]
 
-    latent_dim = forward_model.C_forward.shape[0]
+    latent_dim = int(forward_model.C_forward.in_features)
     B = torch.eye(latent_dim, device=device)
     R = obs_handler.create_block_R_matrix(base_variance=observation_variance).to(device)
 

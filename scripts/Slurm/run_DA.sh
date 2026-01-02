@@ -15,7 +15,9 @@ conda activate koopmanda
 
 # Cylinder / Dam / ERA5
 # DMD / CAE_DMD / CAE_Koopman / CAE_Linear / CAE_Weaklinear / CAE_MLP / discreteCGKN / DBF
-# cd src/models/DBF/ERA5
+# cd src/models/CAE_Linear/ERA5
+
+# python direct_DA.py
 
 cd src/assimilation/
 

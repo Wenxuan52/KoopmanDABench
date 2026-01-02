@@ -38,7 +38,7 @@ src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", ".."
 sys.path.append(src_directory)
 
 from src.utils.Dataset import ERA5Dataset  # noqa: E402
-from era5_model import ERA5Decoder, ERA5Encoder  # noqa: E402
+from src.models.discreteCGKN.ERA5.era5_model import ERA5Decoder, ERA5Encoder  # noqa: E402
 from src.models.CAE_Koopman.ERA5.era5_model_FTF import ERA5_settings  # noqa: E402
 
 
