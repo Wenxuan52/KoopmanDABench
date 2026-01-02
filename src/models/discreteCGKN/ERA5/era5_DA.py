@@ -31,6 +31,17 @@ from src.models.discreteCGKN.ERA5.era5_train import DiscreteCGN, ProbeSampler  #
 from src.models.CAE_Koopman.ERA5.era5_model_FTF import ERA5_settings  # noqa: E402
 
 
+def _tensor_summary(name: str, tensor: torch.Tensor) -> str:
+    flat = tensor.detach().reshape(-1)
+    finite = flat[torch.isfinite(flat)]
+    if finite.numel() == 0:
+        return f"{name}: all elements are non-finite, shape={tuple(tensor.shape)}"
+    return (
+        f"{name}: shape={tuple(tensor.shape)}, min={finite.min():.4e}, max={finite.max():.4e},"
+        f" mean={finite.mean():.4e}, std={finite.std():.4e}"
+    )
+
+
 def set_seed(seed: int | None):
     if seed is None:
         return
@@ -192,7 +203,7 @@ def apply_filter_step(
             if info.max().item() == 0:
                 return torch.cholesky_solve(rhs, L)
         # Diagonal fallback: treat mat as diagonal dominant
-        mat_diag = torch.diagonal(mat_spd, dim1=-2, dim2=-1) + 1e-3
+        mat_diag = torch.diagonal(mat_spd, dim1=-2, dim2=-1).abs().clamp_min(1e-3)
         return rhs / mat_diag.unsqueeze(-1)
 
     R = symmetrize_jitter(R, eps=1e-4)
@@ -235,7 +246,7 @@ def apply_filter_step(
     mu_upd = mu_pred + torch.bmm(A, Sinv_innov)
 
     Bmat = apply_Sinv(g1_R_g2T)
-    R_upd = R_pred - torch.bmm(A, Bmat)
+    R_upd = symmetrize_jitter(R_pred - torch.bmm(A, Bmat))
     return mu_upd, R_upd
 
 
@@ -305,8 +316,18 @@ def run_da_single(
         noda_preds.append(decode_mu(decoder, noda_mu.unsqueeze(-1)).squeeze(0))
         u_state = u_next
 
-        if debug and k == 0:
-            print(f"Step {k}: u1_hold {u1_hold.shape}, mu {mu.shape}, R {R.shape}")
+        if debug:
+            if not torch.isfinite(mu).all() or not torch.isfinite(R).all():
+                print(f"[WARN] Non-finite values at step {k}")
+                print(
+                    _tensor_summary("mu", mu.cpu()),
+                    _tensor_summary("R", R.cpu()),
+                    _tensor_summary("u_cond", u_cond.cpu()),
+                    _tensor_summary("u_obs" if has_obs else "u_obs(None)", (u_obs if u_obs is not None else torch.tensor(0)).cpu()),
+                    sep="\n",
+                )
+            elif k == 0:
+                print(f"Step {k}: u1_hold {u1_hold.shape}, mu {mu.shape}, R {R.shape}")
 
     da_stack = torch.stack(preds, dim=0)  # [T, C, H, W]
     noda_stack = torch.stack(noda_preds, dim=0)
@@ -347,6 +368,8 @@ def run_multi_da_experiment(
     if not sigma_file.exists():
         sigma_file = ckpt_dir / "stage1_sigma_hat.npy"
     sigma_hat = torch.from_numpy(np.load(sigma_file)).to(device_t)
+    if not torch.isfinite(sigma_hat).all():
+        raise RuntimeError(_tensor_summary("sigma_hat", sigma_hat))
 
     # load channels/dim_z from saved config if present to avoid mismatch
     config_path = ckpt_dir / f"{ckpt_prefix}_config.json"
@@ -424,6 +447,12 @@ def run_multi_da_experiment(
 
     print(f"Saved DA trajectory to {out_dir / 'multi.npy'}")
     print(f"Saved metrics to {out_dir / 'multi_meanstd.npz'}")
+    for key in ["mse", "rrmse", "ssim"]:
+        run_values = [m.mean() for m in [rm[key] for rm in run_metrics]]
+        print(
+            f"{key.upper()} mean over runs: {float(np.mean(run_values)):.6f}, std: {float(np.std(run_values)):.6f}"
+        )
+
     return run_metrics[0]
 
 
