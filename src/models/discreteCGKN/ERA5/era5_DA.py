@@ -393,6 +393,7 @@ def run_multi_da_experiment(
     use_channels: Sequence[int] | None = None,
     device: str | None = None,
     debug: bool = False,
+    save_prefix: str | None = None,
 ):
     device_t = set_device(device)
     set_seed(42)
@@ -508,10 +509,14 @@ def run_multi_da_experiment(
 
     out_dir = results_dir / "DA"
     out_dir.mkdir(parents=True, exist_ok=True)
-    np.save(out_dir / "multi.npy", da_stack[0].detach().numpy())
-    np.save(out_dir / "noda.npy", noda_stack[0].detach().numpy())
+
+    def prefixed(name: str) -> str:
+        return f"{save_prefix}{name}" if save_prefix else name
+
+    np.save(out_dir / prefixed("multi.npy"), da_stack[0].detach().numpy())
+    np.save(out_dir / prefixed("noda.npy"), noda_stack[0].detach().numpy())
     np.savez(
-        out_dir / "multi_meanstd.npz",
+        out_dir / prefixed("multi_meanstd.npz"),
         mse_mean=mse_mean,
         mse_std=mse_std,
         rrmse_mean=rrmse_mean,
@@ -520,8 +525,8 @@ def run_multi_da_experiment(
         ssim_std=ssim_std,
     )
 
-    print(f"Saved DA trajectory to {out_dir / 'multi.npy'}")
-    print(f"Saved metrics to {out_dir / 'multi_meanstd.npz'}")
+    print(f"Saved DA trajectory to {out_dir / prefixed('multi.npy')}")
+    print(f"Saved metrics to {out_dir / prefixed('multi_meanstd.npz')}")
     for key in ["mse", "rrmse", "ssim"]:
         run_values = [m.mean() for m in [rm[key] for rm in run_metrics]]
         print(
@@ -548,6 +553,7 @@ def main():
     parser.add_argument("--use_channels", type=str, default=None, help="Comma separated channel indices; default all")
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--save_prefix", type=str, default=None)
     args = parser.parse_args()
 
     channels = None if args.use_channels is None else [int(c) for c in args.use_channels.split(",") if c != ""]
@@ -568,6 +574,7 @@ def main():
         use_channels=channels,
         device=args.device,
         debug=args.debug,
+        save_prefix=args.save_prefix,
     )
 
 
