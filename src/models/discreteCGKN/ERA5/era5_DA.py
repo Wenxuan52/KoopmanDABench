@@ -4,7 +4,7 @@ This script mirrors the ERA5 discrete CGKN training artifacts and applies the
 NSE-style closed-form predict/update (coefficients conditioned on the held
 probe) over a fixed assimilation window. Observation schedule is defined over
 steps k=0..window_length-1, where step k corresponds to physical time t=k+1.
-At non-scheduled steps, the last observed probe is carried forward without
+At non-scheduled steps, the probe is advanced by the model prediction without
 peeking at ground truth.
 """
 
@@ -19,6 +19,9 @@ import numpy as np
 import torch
 from skimage.metrics import structural_similarity as ssim
 
+# Force matplotlib to use a writable cache directory to avoid permission errors
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib_config")
+
 # Ensure project root is importable
 current_directory = os.getcwd()
 src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", "..", ".."))
@@ -29,6 +32,17 @@ from src.utils.Dataset import ERA5Dataset  # noqa: E402
 from src.models.discreteCGKN.ERA5.era5_model import ERA5Decoder, ERA5Encoder  # noqa: E402
 from src.models.discreteCGKN.ERA5.era5_train import DiscreteCGN, ProbeSampler  # noqa: E402
 from src.models.CAE_Koopman.ERA5.era5_model_FTF import ERA5_settings  # noqa: E402
+
+
+def _tensor_summary(name: str, tensor: torch.Tensor) -> str:
+    flat = tensor.detach().reshape(-1)
+    finite = flat[torch.isfinite(flat)]
+    if finite.numel() == 0:
+        return f"{name}: all elements are non-finite, shape={tuple(tensor.shape)}"
+    return (
+        f"{name}: shape={tuple(tensor.shape)}, min={finite.min():.4e}, max={finite.max():.4e},"
+        f" mean={finite.mean():.4e}, std={finite.std():.4e}"
+    )
 
 
 def set_seed(seed: int | None):
@@ -149,14 +163,84 @@ def prepare_probe_sampler(probe_file: Path, channels: List[int]) -> ProbeSampler
     return ProbeSampler(coords, channels)
 
 
+def stabilize_cov(
+    R: torch.Tensor, jitter: float = 1e-6, clamp_min: float = 1e-8, clamp_max: float | None = None
+) -> torch.Tensor:
+    """Symmetrize and try to enforce PSD with jitter and optional eigenvalue clamp."""
+
+    eye = torch.eye(R.shape[-1], device=R.device).unsqueeze(0)
+    R_sym = 0.5 * (R + R.transpose(-1, -2))
+
+    # First, attempt a cheap stabilization via jittered Cholesky
+    jitters = (jitter, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1)
+    for j in jitters:
+        R_try = R_sym + j * eye
+        L, info = torch.linalg.cholesky_ex(R_try)
+        if int(info.max().item()) == 0:
+            return 0.5 * (R_try + R_try.transpose(-1, -2))
+
+    # If Cholesky keeps failing, fall back to eigenvalue clamping but guard against convergence errors
+    needs_eig = (
+        torch.isnan(R_sym).any()
+        or torch.isinf(R_sym).any()
+        or (R_sym.diagonal(dim1=-2, dim2=-1) <= 0).any()
+    )
+    if needs_eig:
+        for j in jitters:
+            try:
+                evals, evecs = torch.linalg.eigh(R_sym + j * eye)
+                evals = evals.clamp_min(clamp_min)
+                if clamp_max is not None:
+                    evals = evals.clamp_max(clamp_max)
+                R_rec = (evecs * evals.unsqueeze(-2)) @ evecs.transpose(-2, -1)
+                return 0.5 * (R_rec + R_rec.transpose(-1, -2))
+            except torch.linalg.LinAlgError:
+                continue
+
+    # Last resort: add a large jitter to force PSD without eigen decomposition
+    R_fallback = R_sym + jitters[-1] * eye
+    return 0.5 * (R_fallback + R_fallback.transpose(-1, -2))
+
+
+def solve_psd(mat: torch.Tensor, rhs: torch.Tensor) -> torch.Tensor:
+    mat = 0.5 * (mat + mat.transpose(-1, -2))
+    eye = torch.eye(mat.shape[-1], device=mat.device).unsqueeze(0)
+    jitters = (0.0, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0)
+    for jitter in jitters:
+        mat_try = mat + jitter * eye
+        L, info = torch.linalg.cholesky_ex(mat_try)
+        if int(info.max().item()) == 0:
+            return torch.cholesky_solve(rhs, L)
+
+    # Eigenvalue clamp fallback for nearly singular matrices
+    for jitter in jitters[1:]:
+        try:
+            mat_try = mat + jitter * eye
+            evals, evecs = torch.linalg.eigh(mat_try)
+            evals = evals.clamp_min(1e-8)
+            mat_psd = (evecs * evals.unsqueeze(-2)) @ evecs.transpose(-2, -1)
+            mat_psd = 0.5 * (mat_psd + mat_psd.transpose(-1, -2))
+            L, info = torch.linalg.cholesky_ex(mat_psd)
+            if int(info.max().item()) == 0:
+                return torch.cholesky_solve(rhs, L)
+        except torch.linalg.LinAlgError:
+            continue
+
+    # Least-squares solve as last resort to avoid singular solve failures
+    sol, *_ = torch.linalg.lstsq(mat + jitters[-1] * eye, rhs)
+    return sol
+
+
 def apply_filter_step(
     cgn: DiscreteCGN,
     sigma: torch.Tensor,
     mu: torch.Tensor,
     R: torch.Tensor,
     u_cond: torch.Tensor,
-    u_obs: torch.Tensor | None,
+    u_next: torch.Tensor | None,
     do_update: bool,
+    obs_noise_std: float,
+    mats: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor] | None = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Predict/update with coefficients conditioned on held u1 and innovation on u1_next.
 
@@ -164,7 +248,7 @@ def apply_filter_step(
         mu: [B, dim_z, 1]
         R: [B, dim_z, dim_z]
         u_cond: [B, dim_u1] probe used to produce (f,g)
-        u_obs: [B, dim_u1] probe observation at next step (None if no update)
+        u_next: [B, dim_u1] probe at next step (observation or model prediction)
         do_update: whether to apply the innovation-based correction
     """
 
@@ -172,70 +256,31 @@ def apply_filter_step(
     dim_z = cgn.dim_z
     sigma_u1 = sigma[:dim_u1]
     sigma_z = sigma[dim_u1:]
+    sigma_u1_eff = torch.sqrt(torch.clamp(sigma_u1**2 + obs_noise_std**2, min=0.0))
 
-    def symmetrize_jitter(mat: torch.Tensor, eps: float = 1e-4) -> torch.Tensor:
-        mat = 0.5 * (mat + mat.transpose(1, 2))
-        eye = torch.eye(mat.shape[-1], device=mat.device).unsqueeze(0)
-        return mat + eps * eye
-
-    def solve_spd(mat: torch.Tensor, rhs: torch.Tensor) -> torch.Tensor:
-        """Solve mat @ x = rhs assuming mat is (near) SPD.
-
-        Uses progressively larger jittered Cholesky solves; if they all fail,
-        falls back to a diagonal solve to avoid SVD/pseudo-inverse instability
-        on ill-conditioned batches.
-        """
-
-        for jitter in (1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1):
-            mat_spd = symmetrize_jitter(mat, eps=jitter)
-            L, info = torch.linalg.cholesky_ex(mat_spd)
-            if info.max().item() == 0:
-                return torch.cholesky_solve(rhs, L)
-        # Diagonal fallback: treat mat as diagonal dominant
-        mat_diag = torch.diagonal(mat_spd, dim1=-2, dim2=-1) + 1e-3
-        return rhs / mat_diag.unsqueeze(-1)
-
-    R = symmetrize_jitter(R, eps=1e-4)
-
-    f1, g1, f2, g2 = cgn.get_cgn_mats(u_cond)
+    R_prior = stabilize_cov(R)
+    if mats is None:
+        f1, g1, f2, g2 = cgn.get_cgn_mats(u_cond)
+    else:
+        f1, g1, f2, g2 = mats
 
     mu_pred = f2 + torch.bmm(g2, mu)
-    R_pred = torch.bmm(torch.bmm(g2, R), g2.transpose(1, 2)) + torch.diag(sigma_z**2).to(R).unsqueeze(0)
-    R_pred = symmetrize_jitter(R_pred)
+    process_cov = torch.diag_embed(sigma_z**2).to(R_prior).unsqueeze(0)
+    R_pred = stabilize_cov(torch.bmm(torch.bmm(g2, R_prior), g2.transpose(1, 2)) + process_cov)
 
-    if not do_update or u_obs is None:
+    if (not do_update) or u_next is None:
         return mu_pred, R_pred
 
-    # Innovation uses u_obs = u1^{n+1}, coefficients from u_cond = u1^{n}
-    innov = u_obs.unsqueeze(-1) - (f1 + torch.bmm(g1, mu))  # [B, dim_u1, 1]
-    Dinv = (1.0 / (sigma_u1**2 + 1e-6)).view(1, dim_u1, 1)
-    Dinv_g1 = Dinv * g1  # [B, dim_u1, dim_z]
-    Gt_Dinv_G = torch.bmm(g1.transpose(1, 2), Dinv_g1)  # [B, dim_z, dim_z]
+    innov = u_next.unsqueeze(-1) - (f1 + torch.bmm(g1, mu))
+    S = torch.diag_embed(sigma_u1_eff**2).to(R_prior).unsqueeze(0) + torch.bmm(torch.bmm(g1, R_prior), g1.transpose(1, 2))
+    Sinv_innov = solve_psd(S, innov)
 
-    eye_z = torch.eye(dim_z, device=R.device).unsqueeze(0)
-    R_inv_eye = solve_spd(R, eye_z)  # [B, dim_z, dim_z]
-    M = R_inv_eye + Gt_Dinv_G
-    M = symmetrize_jitter(M)
-    M_inv = solve_spd(M, eye_z)
-
-    def apply_Sinv(rhs: torch.Tensor) -> torch.Tensor:
-        """Apply S^{-1} to a RHS (Woodbury), rhs shape [B, dim_u1, k]."""
-
-        Dinv_rhs = Dinv * rhs
-        Gt_Dinv_rhs = torch.bmm(g1.transpose(1, 2), Dinv_rhs)
-        middle = torch.bmm(M_inv, Gt_Dinv_rhs)
-        correction = torch.bmm(Dinv_g1, middle)
-        return Dinv_rhs - correction
-
-    # Gain and updates per Eq. (2.6): A = g2 R g1^T, B = S^{-1}(g1 R g2^T)
-    R_g1T = torch.bmm(R, g1.transpose(1, 2))  # [B, dim_z, dim_u1]
-    g1_R_g2T = torch.bmm(g1, torch.bmm(R, g2.transpose(1, 2)))  # [B, dim_u1, dim_z]
-    A = torch.bmm(g2, R_g1T)
-    Sinv_innov = apply_Sinv(innov)
+    A = torch.bmm(g2, torch.bmm(R_prior, g1.transpose(1, 2)))
     mu_upd = mu_pred + torch.bmm(A, Sinv_innov)
 
-    Bmat = apply_Sinv(g1_R_g2T)
-    R_upd = R_pred - torch.bmm(A, Bmat)
+    g1_R_g2T = torch.bmm(g1, torch.bmm(R_prior, g2.transpose(1, 2)))
+    Bmat = solve_psd(S, g1_R_g2T)
+    R_upd = stabilize_cov(R_pred - torch.bmm(A, Bmat))
     return mu_upd, R_upd
 
 
@@ -260,55 +305,73 @@ def run_da_single(
     dim_u1 = sampler.dim_u1
     assert sigma_hat.shape[0] == dim_u1 + dim_z, "sigma_hat dim mismatch"
 
+    frames = torch.nan_to_num(frames, nan=0.0, posinf=0.0, neginf=0.0)
     frames_b = frames.unsqueeze(0).to(device)
 
-    mu0 = encoder(frames_b[:, :1]).squeeze(1).unsqueeze(-1)  # [1, dim_z, 1]
-    R0 = 0.01 * torch.eye(dim_z, device=device).unsqueeze(0)  # [1, dim_z, dim_z]
+    mu = encoder(frames_b[:, :1]).squeeze(1).unsqueeze(-1)  # [1, dim_z, 1]
+    R = 0.01 * torch.eye(dim_z, device=device).unsqueeze(0)  # [1, dim_z, dim_z]
 
-    # Initial probe from t=0 for conditioning
-    u1_hold = sampler.sample(frames_b[:, :1])[:, 0]
-    mu = mu0
-    R = R0
+    u_cur = sampler.sample(frames_b[:, :1])[:, 0]
+    if debug:
+        print(
+            "[DEBUG] Initial states",
+            _tensor_summary("mu", mu),
+            _tensor_summary("u_cur", u_cur),
+            _tensor_summary("sigma_hat", sigma_hat),
+            sep="\n",
+        )
+    preds: List[torch.Tensor] = []
+    noda_preds: List[torch.Tensor] = []
 
-    preds = []
-    noda_preds = []
-
-    # No-DA rollout using model-predicted probes
-    u_state = torch.cat([u1_hold, mu.squeeze(-1)], dim=-1)
+    u_state = torch.cat([u_cur, mu.squeeze(-1)], dim=-1)
     for k in range(window_length):
-        # DA branch
         has_obs = k in sched_set
-        u_cond = u1_hold  # coefficients conditioned on last observed probe (t=k when k=0)
-        u_obs = None
+        f1, g1, f2, g2 = cgn.get_cgn_mats(u_cur)
+        u_pred_next = (f1 + torch.bmm(g1, mu)).squeeze(-1)
+
+        u_obs_next = None
         if has_obs:
-            u_obs = sampler.sample(frames_b[:, k + 1 : k + 2])[:, 0]
+            u_obs_next = sampler.sample(frames_b[:, k + 1 : k + 2])[:, 0]
             if obs_noise_std > 0:
-                u_obs = u_obs + obs_noise_std * torch.randn_like(u_obs)
-        # coefficients use u_cond (held), innovation uses current obs if available
+                u_obs_next = u_obs_next + obs_noise_std * torch.randn_like(u_obs_next)
+        u_next = u_obs_next if has_obs else u_pred_next.detach()
+
         mu, R = apply_filter_step(
             cgn,
             sigma_hat,
             mu,
             R,
-            u_cond=u_cond,
-            u_obs=u_obs if has_obs else None,
+            u_cond=u_cur,
+            u_next=u_next,
             do_update=has_obs,
+            obs_noise_std=obs_noise_std,
+            mats=(f1, g1, f2, g2),
         )
-        if has_obs:
-            u1_hold = u_obs  # update hold for next step conditioning
-        # decode_mu returns [B, C, H, W]; drop the batch dimension for metric alignment
-        preds.append(decode_mu(decoder, mu).squeeze(0))
+        u_cur = u_next.detach()
 
-        # No-DA branch: pure rollout
-        u_next = cgn(u_state)
-        noda_mu = u_next[:, dim_u1:]
-        noda_preds.append(decode_mu(decoder, noda_mu.unsqueeze(-1)).squeeze(0))
-        u_state = u_next
+        if debug:
+            if (not torch.isfinite(mu).all()) or (not torch.isfinite(R).all()):
+                print(f"[ERROR] Non-finite filter state at step {k}")
+                print(
+                    _tensor_summary("mu", mu.cpu()),
+                    _tensor_summary("R", R.cpu()),
+                    _tensor_summary("u_cond", u_cur.cpu()),
+                    _tensor_summary("u_next", u_next.cpu()),
+                    sep="\n",
+                )
+                raise ValueError(f"Non-finite filter state at step {k}")
 
-        if debug and k == 0:
-            print(f"Step {k}: u1_hold {u1_hold.shape}, mu {mu.shape}, R {R.shape}")
+        da_frame = decode_mu(decoder, mu).squeeze(0)
+        da_frame = torch.nan_to_num(da_frame, nan=0.0, posinf=0.0, neginf=0.0)
+        preds.append(da_frame)
 
-    da_stack = torch.stack(preds, dim=0)  # [T, C, H, W]
+        u_state = cgn(u_state)
+        noda_mu = u_state[:, dim_u1:]
+        noda_frame = decode_mu(decoder, noda_mu.unsqueeze(-1)).squeeze(0)
+        noda_frame = torch.nan_to_num(noda_frame, nan=0.0, posinf=0.0, neginf=0.0)
+        noda_preds.append(noda_frame)
+
+    da_stack = torch.stack(preds, dim=0)
     noda_stack = torch.stack(noda_preds, dim=0)
     return da_stack, noda_stack
 
@@ -330,6 +393,7 @@ def run_multi_da_experiment(
     use_channels: Sequence[int] | None = None,
     device: str | None = None,
     debug: bool = False,
+    save_prefix: str | None = None,
 ):
     device_t = set_device(device)
     set_seed(42)
@@ -337,6 +401,11 @@ def run_multi_da_experiment(
     schedule = parse_schedule(observation_schedule, window_length)
 
     dataset = ERA5Dataset(data_path=data_path, seq_length=window_length, min_path=min_path, max_path=max_path)
+    if debug:
+        print(
+            f"[DEBUG] Dataset loaded: len={len(dataset)}, seq_length={window_length}, "
+            f"min finite={np.isfinite(dataset.min).all()}, max finite={np.isfinite(dataset.max).all()}"
+        )
     denorm = lambda t: safe_denorm(t, dataset)
 
     results_dir = Path("../../../../results") / model_name / "ERA5"
@@ -347,8 +416,17 @@ def run_multi_da_experiment(
     if not sigma_file.exists():
         sigma_file = ckpt_dir / "stage1_sigma_hat.npy"
     sigma_hat = torch.from_numpy(np.load(sigma_file)).to(device_t)
+    if not torch.isfinite(sigma_hat).all():
+        raise RuntimeError(_tensor_summary("sigma_hat", sigma_hat))
+    if debug:
+        print(
+            f"[DEBUG] Loaded sigma_hat from {sigma_file}",
+            _tensor_summary("sigma_hat", sigma_hat),
+            f"Probe file: {probe_file}",
+            f"Schedule: {schedule}",
+            sep="\n",
+        )
 
-    # load channels/dim_z from saved config if present to avoid mismatch
     config_path = ckpt_dir / f"{ckpt_prefix}_config.json"
     if not config_path.exists():
         config_path = ckpt_dir / "stage1_config.json"
@@ -371,9 +449,9 @@ def run_multi_da_experiment(
         sigma_hat = sigma_hat.clone()
         sigma_hat[:dim_u1] = observation_variance ** 0.5
 
-    da_runs = []
-    noda_runs = []
-    gt_runs = []
+    da_runs: List[torch.Tensor] = []
+    noda_runs: List[torch.Tensor] = []
+    gt_runs: List[torch.Tensor] = []
 
     for i in range(num_runs):
         idx = min(start_T + i, len(dataset) - 1)
@@ -392,15 +470,36 @@ def run_multi_da_experiment(
             debug=debug,
         )
         gt = full_seq[1 : window_length + 1]
-        da_runs.append(denorm(da_pred).cpu())
-        noda_runs.append(denorm(noda_pred).cpu())
-        gt_runs.append(denorm(gt).cpu())
+        denorm_da = torch.nan_to_num(denorm(da_pred), nan=0.0, posinf=0.0, neginf=0.0)
+        denorm_noda = torch.nan_to_num(denorm(noda_pred), nan=0.0, posinf=0.0, neginf=0.0)
+        denorm_gt = torch.nan_to_num(denorm(gt), nan=0.0, posinf=0.0, neginf=0.0)
+        da_runs.append(denorm_da.cpu())
+        noda_runs.append(denorm_noda.cpu())
+        gt_runs.append(denorm_gt.cpu())
+        if debug:
+            print(
+                f"[DEBUG] Run {i}:",
+                _tensor_summary("denorm_da", denorm_da),
+                _tensor_summary("denorm_noda", denorm_noda),
+                _tensor_summary("denorm_gt", denorm_gt),
+                sep="\n",
+            )
 
-    da_stack = torch.stack(da_runs)  # [num_runs, T, C, H, W]
+    da_stack = torch.stack(da_runs)
     noda_stack = torch.stack(noda_runs)
     gt_stack = torch.stack(gt_runs)
 
-    run_metrics = [compute_metrics(da_stack[i], noda_stack[i], gt_stack[i]) for i in range(num_runs)]
+    run_metrics: List[Dict[str, np.ndarray]] = []
+    for i in range(num_runs):
+        metrics_i = compute_metrics(da_stack[i], noda_stack[i], gt_stack[i])
+        for key in metrics_i:
+            if not np.isfinite(metrics_i[key]).all():
+                if debug:
+                    mask = ~np.isfinite(metrics_i[key])
+                    bad_idx = np.argwhere(mask)
+                    print(f"[WARN] Non-finite {key} entries for run {i}, first positions: {bad_idx[:5]}")
+                metrics_i[key] = np.nan_to_num(metrics_i[key], nan=0.0, posinf=0.0, neginf=0.0)
+        run_metrics.append(metrics_i)
     mse_mean = np.mean([rm["mse"] for rm in run_metrics], axis=0)
     mse_std = np.std([rm["mse"] for rm in run_metrics], axis=0)
     rrmse_mean = np.mean([rm["rrmse"] for rm in run_metrics], axis=0)
@@ -410,10 +509,14 @@ def run_multi_da_experiment(
 
     out_dir = results_dir / "DA"
     out_dir.mkdir(parents=True, exist_ok=True)
-    np.save(out_dir / "multi.npy", da_stack[0].detach().numpy())
-    np.save(out_dir / "noda.npy", noda_stack[0].detach().numpy())
+
+    def prefixed(name: str) -> str:
+        return f"{save_prefix}{name}" if save_prefix else name
+
+    np.save(out_dir / prefixed("multi.npy"), da_stack[0].detach().numpy())
+    np.save(out_dir / prefixed("noda.npy"), noda_stack[0].detach().numpy())
     np.savez(
-        out_dir / "multi_meanstd.npz",
+        out_dir / prefixed("multi_meanstd.npz"),
         mse_mean=mse_mean,
         mse_std=mse_std,
         rrmse_mean=rrmse_mean,
@@ -422,8 +525,14 @@ def run_multi_da_experiment(
         ssim_std=ssim_std,
     )
 
-    print(f"Saved DA trajectory to {out_dir / 'multi.npy'}")
-    print(f"Saved metrics to {out_dir / 'multi_meanstd.npz'}")
+    print(f"Saved DA trajectory to {out_dir / prefixed('multi.npy')}")
+    print(f"Saved metrics to {out_dir / prefixed('multi_meanstd.npz')}")
+    for key in ["mse", "rrmse", "ssim"]:
+        run_values = [m.mean() for m in [rm[key] for rm in run_metrics]]
+        print(
+            f"{key.upper()} mean over runs: {float(np.mean(run_values)):.6f}, std: {float(np.std(run_values)):.6f}"
+        )
+
     return run_metrics[0]
 
 
@@ -444,6 +553,7 @@ def main():
     parser.add_argument("--use_channels", type=str, default=None, help="Comma separated channel indices; default all")
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--save_prefix", type=str, default=None)
     args = parser.parse_args()
 
     channels = None if args.use_channels is None else [int(c) for c in args.use_channels.split(",") if c != ""]
@@ -464,6 +574,7 @@ def main():
         use_channels=channels,
         device=args.device,
         debug=args.debug,
+        save_prefix=args.save_prefix,
     )
 
 

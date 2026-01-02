@@ -95,6 +95,7 @@ def run_multi_da_experiment(
     early_stop_config: Tuple[int, float] = (100, 1e-3),
     start_T: int = 0,
     model_name: str = "CAE_MLP",
+    save_prefix: str | None = None,
 ):
     """Run repeated DA experiments and collect mean/std statistics."""
     set_seed(42)
@@ -233,10 +234,16 @@ def run_multi_da_experiment(
     save_dir = "../../../../results/CAE_MLP/ERA5/DA"
     os.makedirs(save_dir, exist_ok=True)
 
+    def prefixed(name: str) -> str:
+        return f"{save_prefix}{name}" if save_prefix else name
+
     # Save one run's DA states
     if first_run_states is not None:
-        np.save(os.path.join(save_dir, "multi.npy"), safe_denorm(first_run_states, dataset).numpy())
-        print(f"Saved sample DA trajectory to {os.path.join(save_dir, 'multi.npy')}")
+        np.save(
+            os.path.join(save_dir, prefixed("multi.npy")),
+            safe_denorm(first_run_states, dataset).numpy(),
+        )
+        print(f"Saved sample DA trajectory to {os.path.join(save_dir, prefixed('multi.npy'))}")
 
     metrics_meanstd = {}
     for key in run_metrics:
@@ -245,12 +252,14 @@ def run_multi_da_experiment(
         metrics_meanstd[f"{key}_std"] = metric_array.std(axis=0)
 
     np.savez(
-        os.path.join(save_dir, "multi_meanstd.npz"),
+        os.path.join(save_dir, prefixed("multi_meanstd.npz")),
         **metrics_meanstd,
         steps=np.arange(1, window_length + 1),
         metrics=["MSE", "RRMSE", "SSIM"],
     )
-    print(f"Saved mean/std metrics to {os.path.join(save_dir, 'multi_meanstd.npz')}")
+    print(
+        f"Saved mean/std metrics to {os.path.join(save_dir, prefixed('multi_meanstd.npz'))}"
+    )
 
     # Overall stats
     overall_stats = {}

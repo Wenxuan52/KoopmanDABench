@@ -418,6 +418,7 @@ def run_multi_da_experiment(
     probe_min_spacing: int = 4,
     use_channels: Sequence[int] = (0, 1),
     dt: float = 0.001,
+    save_prefix: str | None = None,
 ):
     set_seed(42)
     device = set_device()
@@ -556,9 +557,12 @@ def run_multi_da_experiment(
     save_dir = results_dir / "DA"
     os.makedirs(save_dir, exist_ok=True)
 
+    def prefixed(name: str) -> str:
+        return f"{save_prefix}{name}" if save_prefix else name
+
     if first_run_states is not None:
-        np.save(save_dir / "multi.npy", safe_denorm(first_run_states, dataset).numpy())
-        print(f"Saved sample DA trajectory to {save_dir / 'multi.npy'}")
+        np.save(save_dir / prefixed("multi.npy"), safe_denorm(first_run_states, dataset).numpy())
+        print(f"Saved sample DA trajectory to {save_dir / prefixed('multi.npy')}")
 
     metrics_meanstd = {}
     for key in run_metrics:
@@ -567,12 +571,12 @@ def run_multi_da_experiment(
         metrics_meanstd[f"{key}_std"] = metric_array.std(axis=0)
 
     np.savez(
-        save_dir / "multi_meanstd.npz",
+        save_dir / prefixed("multi_meanstd.npz"),
         **metrics_meanstd,
         steps=np.arange(1, window_length + 1),
         metrics=["MSE", "RRMSE", "SSIM"],
     )
-    print(f"Saved mean/std metrics to {save_dir / 'multi_meanstd.npz'}")
+    print(f"Saved mean/std metrics to {save_dir / prefixed('multi_meanstd.npz')}")
 
     for key in ["mse", "rrmse", "ssim"]:
         run_values = [m.mean() for m in run_metrics[key]]
