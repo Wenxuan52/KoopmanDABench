@@ -19,7 +19,8 @@ import numpy as np
 import torch
 from skimage.metrics import structural_similarity as ssim
 
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib_config")
+# Force matplotlib to use a writable cache directory to avoid permission errors
+os.environ["MPLCONFIGDIR"] = "/tmp/matplotlib_config"
 
 # Ensure project root is importable
 current_directory = os.getcwd()
@@ -162,22 +163,43 @@ def prepare_probe_sampler(probe_file: Path, channels: List[int]) -> ProbeSampler
     return ProbeSampler(coords, channels)
 
 
-def stabilize_cov(R: torch.Tensor, jitter: float = 1e-6, clamp_min: float = 1e-8, clamp_max: float | None = None) -> torch.Tensor:
+def stabilize_cov(
+    R: torch.Tensor, jitter: float = 1e-6, clamp_min: float = 1e-8, clamp_max: float | None = None
+) -> torch.Tensor:
+    """Symmetrize and try to enforce PSD with jitter and optional eigenvalue clamp."""
+
     eye = torch.eye(R.shape[-1], device=R.device).unsqueeze(0)
-    R = 0.5 * (R + R.transpose(-1, -2)) + jitter * eye
+    R_sym = 0.5 * (R + R.transpose(-1, -2))
+
+    # First, attempt a cheap stabilization via jittered Cholesky
+    jitters = (jitter, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1)
+    for j in jitters:
+        R_try = R_sym + j * eye
+        L, info = torch.linalg.cholesky_ex(R_try)
+        if int(info.max().item()) == 0:
+            return 0.5 * (R_try + R_try.transpose(-1, -2))
+
+    # If Cholesky keeps failing, fall back to eigenvalue clamping but guard against convergence errors
     needs_eig = (
-        torch.isnan(R).any()
-        or torch.isinf(R).any()
-        or (R.diagonal(dim1=-2, dim2=-1) <= 0).any()
+        torch.isnan(R_sym).any()
+        or torch.isinf(R_sym).any()
+        or (R_sym.diagonal(dim1=-2, dim2=-1) <= 0).any()
     )
     if needs_eig:
-        evals, evecs = torch.linalg.eigh(R)
-        evals = evals.clamp_min(clamp_min)
-        if clamp_max is not None:
-            evals = evals.clamp_max(clamp_max)
-        R = (evecs * evals.unsqueeze(-2)) @ evecs.transpose(-2, -1)
-        R = 0.5 * (R + R.transpose(-1, -2)) + jitter * eye
-    return R
+        for j in jitters:
+            try:
+                evals, evecs = torch.linalg.eigh(R_sym + j * eye)
+                evals = evals.clamp_min(clamp_min)
+                if clamp_max is not None:
+                    evals = evals.clamp_max(clamp_max)
+                R_rec = (evecs * evals.unsqueeze(-2)) @ evecs.transpose(-2, -1)
+                return 0.5 * (R_rec + R_rec.transpose(-1, -2))
+            except torch.linalg.LinAlgError:
+                continue
+
+    # Last resort: add a large jitter to force PSD without eigen decomposition
+    R_fallback = R_sym + jitters[-1] * eye
+    return 0.5 * (R_fallback + R_fallback.transpose(-1, -2))
 
 
 def solve_psd(mat: torch.Tensor, rhs: torch.Tensor) -> torch.Tensor:
