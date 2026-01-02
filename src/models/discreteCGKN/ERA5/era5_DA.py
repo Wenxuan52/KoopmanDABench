@@ -4,7 +4,7 @@ This script mirrors the ERA5 discrete CGKN training artifacts and applies the
 NSE-style closed-form predict/update (coefficients conditioned on the held
 probe) over a fixed assimilation window. Observation schedule is defined over
 steps k=0..window_length-1, where step k corresponds to physical time t=k+1.
-At non-scheduled steps, the last observed probe is carried forward without
+At non-scheduled steps, the probe is advanced by the model prediction without
 peeking at ground truth.
 """
 
@@ -18,6 +18,8 @@ from typing import Dict, List, Sequence, Tuple
 import numpy as np
 import torch
 from skimage.metrics import structural_similarity as ssim
+
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib_config")
 
 # Ensure project root is importable
 current_directory = os.getcwd()
@@ -160,14 +162,46 @@ def prepare_probe_sampler(probe_file: Path, channels: List[int]) -> ProbeSampler
     return ProbeSampler(coords, channels)
 
 
+def stabilize_cov(R: torch.Tensor, jitter: float = 1e-6, clamp_min: float = 1e-8, clamp_max: float | None = None) -> torch.Tensor:
+    eye = torch.eye(R.shape[-1], device=R.device).unsqueeze(0)
+    R = 0.5 * (R + R.transpose(-1, -2)) + jitter * eye
+    needs_eig = (
+        torch.isnan(R).any()
+        or torch.isinf(R).any()
+        or (R.diagonal(dim1=-2, dim2=-1) <= 0).any()
+    )
+    if needs_eig:
+        evals, evecs = torch.linalg.eigh(R)
+        evals = evals.clamp_min(clamp_min)
+        if clamp_max is not None:
+            evals = evals.clamp_max(clamp_max)
+        R = (evecs * evals.unsqueeze(-2)) @ evecs.transpose(-2, -1)
+        R = 0.5 * (R + R.transpose(-1, -2)) + jitter * eye
+    return R
+
+
+def solve_psd(mat: torch.Tensor, rhs: torch.Tensor) -> torch.Tensor:
+    mat = 0.5 * (mat + mat.transpose(-1, -2))
+    eye = torch.eye(mat.shape[-1], device=mat.device).unsqueeze(0)
+    jitters = (0.0, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1)
+    for jitter in jitters:
+        mat_try = mat + jitter * eye
+        L, info = torch.linalg.cholesky_ex(mat_try)
+        if int(info.max().item()) == 0:
+            return torch.cholesky_solve(rhs, L)
+    return torch.linalg.solve(mat + 1e-1 * eye, rhs)
+
+
 def apply_filter_step(
     cgn: DiscreteCGN,
     sigma: torch.Tensor,
     mu: torch.Tensor,
     R: torch.Tensor,
     u_cond: torch.Tensor,
-    u_obs: torch.Tensor | None,
+    u_next: torch.Tensor | None,
     do_update: bool,
+    obs_noise_std: float,
+    mats: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor] | None = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Predict/update with coefficients conditioned on held u1 and innovation on u1_next.
 
@@ -175,7 +209,7 @@ def apply_filter_step(
         mu: [B, dim_z, 1]
         R: [B, dim_z, dim_z]
         u_cond: [B, dim_u1] probe used to produce (f,g)
-        u_obs: [B, dim_u1] probe observation at next step (None if no update)
+        u_next: [B, dim_u1] probe at next step (observation or model prediction)
         do_update: whether to apply the innovation-based correction
     """
 
@@ -183,70 +217,31 @@ def apply_filter_step(
     dim_z = cgn.dim_z
     sigma_u1 = sigma[:dim_u1]
     sigma_z = sigma[dim_u1:]
+    sigma_u1_eff = torch.sqrt(torch.clamp(sigma_u1**2 + obs_noise_std**2, min=0.0))
 
-    def symmetrize_jitter(mat: torch.Tensor, eps: float = 1e-4) -> torch.Tensor:
-        mat = 0.5 * (mat + mat.transpose(1, 2))
-        eye = torch.eye(mat.shape[-1], device=mat.device).unsqueeze(0)
-        return mat + eps * eye
-
-    def solve_spd(mat: torch.Tensor, rhs: torch.Tensor) -> torch.Tensor:
-        """Solve mat @ x = rhs assuming mat is (near) SPD.
-
-        Uses progressively larger jittered Cholesky solves; if they all fail,
-        falls back to a diagonal solve to avoid SVD/pseudo-inverse instability
-        on ill-conditioned batches.
-        """
-
-        for jitter in (1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1):
-            mat_spd = symmetrize_jitter(mat, eps=jitter)
-            L, info = torch.linalg.cholesky_ex(mat_spd)
-            if info.max().item() == 0:
-                return torch.cholesky_solve(rhs, L)
-        # Diagonal fallback: treat mat as diagonal dominant
-        mat_diag = torch.diagonal(mat_spd, dim1=-2, dim2=-1).abs().clamp_min(1e-3)
-        return rhs / mat_diag.unsqueeze(-1)
-
-    R = symmetrize_jitter(R, eps=1e-4)
-
-    f1, g1, f2, g2 = cgn.get_cgn_mats(u_cond)
+    R_prior = stabilize_cov(R)
+    if mats is None:
+        f1, g1, f2, g2 = cgn.get_cgn_mats(u_cond)
+    else:
+        f1, g1, f2, g2 = mats
 
     mu_pred = f2 + torch.bmm(g2, mu)
-    R_pred = torch.bmm(torch.bmm(g2, R), g2.transpose(1, 2)) + torch.diag(sigma_z**2).to(R).unsqueeze(0)
-    R_pred = symmetrize_jitter(R_pred)
+    process_cov = torch.diag_embed(sigma_z**2).to(R_prior).unsqueeze(0)
+    R_pred = stabilize_cov(torch.bmm(torch.bmm(g2, R_prior), g2.transpose(1, 2)) + process_cov)
 
-    if not do_update or u_obs is None:
+    if (not do_update) or u_next is None:
         return mu_pred, R_pred
 
-    # Innovation uses u_obs = u1^{n+1}, coefficients from u_cond = u1^{n}
-    innov = u_obs.unsqueeze(-1) - (f1 + torch.bmm(g1, mu))  # [B, dim_u1, 1]
-    Dinv = (1.0 / (sigma_u1**2 + 1e-6)).view(1, dim_u1, 1)
-    Dinv_g1 = Dinv * g1  # [B, dim_u1, dim_z]
-    Gt_Dinv_G = torch.bmm(g1.transpose(1, 2), Dinv_g1)  # [B, dim_z, dim_z]
+    innov = u_next.unsqueeze(-1) - (f1 + torch.bmm(g1, mu))
+    S = torch.diag_embed(sigma_u1_eff**2).to(R_prior).unsqueeze(0) + torch.bmm(torch.bmm(g1, R_prior), g1.transpose(1, 2))
+    Sinv_innov = solve_psd(S, innov)
 
-    eye_z = torch.eye(dim_z, device=R.device).unsqueeze(0)
-    R_inv_eye = solve_spd(R, eye_z)  # [B, dim_z, dim_z]
-    M = R_inv_eye + Gt_Dinv_G
-    M = symmetrize_jitter(M)
-    M_inv = solve_spd(M, eye_z)
-
-    def apply_Sinv(rhs: torch.Tensor) -> torch.Tensor:
-        """Apply S^{-1} to a RHS (Woodbury), rhs shape [B, dim_u1, k]."""
-
-        Dinv_rhs = Dinv * rhs
-        Gt_Dinv_rhs = torch.bmm(g1.transpose(1, 2), Dinv_rhs)
-        middle = torch.bmm(M_inv, Gt_Dinv_rhs)
-        correction = torch.bmm(Dinv_g1, middle)
-        return Dinv_rhs - correction
-
-    # Gain and updates per Eq. (2.6): A = g2 R g1^T, B = S^{-1}(g1 R g2^T)
-    R_g1T = torch.bmm(R, g1.transpose(1, 2))  # [B, dim_z, dim_u1]
-    g1_R_g2T = torch.bmm(g1, torch.bmm(R, g2.transpose(1, 2)))  # [B, dim_u1, dim_z]
-    A = torch.bmm(g2, R_g1T)
-    Sinv_innov = apply_Sinv(innov)
+    A = torch.bmm(g2, torch.bmm(R_prior, g1.transpose(1, 2)))
     mu_upd = mu_pred + torch.bmm(A, Sinv_innov)
 
-    Bmat = apply_Sinv(g1_R_g2T)
-    R_upd = symmetrize_jitter(R_pred - torch.bmm(A, Bmat))
+    g1_R_g2T = torch.bmm(g1, torch.bmm(R_prior, g2.transpose(1, 2)))
+    Bmat = solve_psd(S, g1_R_g2T)
+    R_upd = stabilize_cov(R_pred - torch.bmm(A, Bmat))
     return mu_upd, R_upd
 
 
@@ -274,83 +269,70 @@ def run_da_single(
     frames = torch.nan_to_num(frames, nan=0.0, posinf=0.0, neginf=0.0)
     frames_b = frames.unsqueeze(0).to(device)
 
-    mu0 = encoder(frames_b[:, :1]).squeeze(1).unsqueeze(-1)  # [1, dim_z, 1]
-    R0 = 0.01 * torch.eye(dim_z, device=device).unsqueeze(0)  # [1, dim_z, dim_z]
+    mu = encoder(frames_b[:, :1]).squeeze(1).unsqueeze(-1)  # [1, dim_z, 1]
+    R = 0.01 * torch.eye(dim_z, device=device).unsqueeze(0)  # [1, dim_z, dim_z]
 
-    # Initial probe from t=0 for conditioning
-    u1_hold = sampler.sample(frames_b[:, :1])[:, 0]
+    u_cur = sampler.sample(frames_b[:, :1])[:, 0]
     if debug:
         print(
             "[DEBUG] Initial states",
-            _tensor_summary("mu0", mu0),
-            _tensor_summary("u1_hold", u1_hold),
+            _tensor_summary("mu", mu),
+            _tensor_summary("u_cur", u_cur),
             _tensor_summary("sigma_hat", sigma_hat),
             sep="\n",
         )
-    mu = mu0
-    R = R0
+    preds: List[torch.Tensor] = []
+    noda_preds: List[torch.Tensor] = []
 
-    preds = []
-    noda_preds = []
-
-    # No-DA rollout using model-predicted probes
-    u_state = torch.cat([u1_hold, mu.squeeze(-1)], dim=-1)
+    u_state = torch.cat([u_cur, mu.squeeze(-1)], dim=-1)
     for k in range(window_length):
-        # DA branch
         has_obs = k in sched_set
-        u_cond = u1_hold  # coefficients conditioned on last observed probe (t=k when k=0)
-        u_obs = None
+        f1, g1, f2, g2 = cgn.get_cgn_mats(u_cur)
+        u_pred_next = (f1 + torch.bmm(g1, mu)).squeeze(-1)
+
+        u_obs_next = None
         if has_obs:
-            u_obs = sampler.sample(frames_b[:, k + 1 : k + 2])[:, 0]
+            u_obs_next = sampler.sample(frames_b[:, k + 1 : k + 2])[:, 0]
             if obs_noise_std > 0:
-                u_obs = u_obs + obs_noise_std * torch.randn_like(u_obs)
-        # coefficients use u_cond (held), innovation uses current obs if available
+                u_obs_next = u_obs_next + obs_noise_std * torch.randn_like(u_obs_next)
+        u_next = u_obs_next if has_obs else u_pred_next.detach()
+
         mu, R = apply_filter_step(
             cgn,
             sigma_hat,
             mu,
             R,
-            u_cond=u_cond,
-            u_obs=u_obs if has_obs else None,
+            u_cond=u_cur,
+            u_next=u_next,
             do_update=has_obs,
+            obs_noise_std=obs_noise_std,
+            mats=(f1, g1, f2, g2),
         )
-        if has_obs:
-            u1_hold = u_obs  # update hold for next step conditioning
-        # decode_mu returns [B, C, H, W]; drop the batch dimension for metric alignment
+        u_cur = u_next.detach()
+
+        if debug:
+            if (not torch.isfinite(mu).all()) or (not torch.isfinite(R).all()):
+                print(f"[ERROR] Non-finite filter state at step {k}")
+                print(
+                    _tensor_summary("mu", mu.cpu()),
+                    _tensor_summary("R", R.cpu()),
+                    _tensor_summary("u_cond", u_cur.cpu()),
+                    _tensor_summary("u_next", u_next.cpu()),
+                    sep="\n",
+                )
+                raise ValueError(f"Non-finite filter state at step {k}")
+
         da_frame = decode_mu(decoder, mu).squeeze(0)
         da_frame = torch.nan_to_num(da_frame, nan=0.0, posinf=0.0, neginf=0.0)
         preds.append(da_frame)
 
-        # No-DA branch: pure rollout
-        u_next = cgn(u_state)
-        noda_mu = u_next[:, dim_u1:]
+        u_state = cgn(u_state)
+        noda_mu = u_state[:, dim_u1:]
         noda_frame = decode_mu(decoder, noda_mu.unsqueeze(-1)).squeeze(0)
         noda_frame = torch.nan_to_num(noda_frame, nan=0.0, posinf=0.0, neginf=0.0)
         noda_preds.append(noda_frame)
-        u_state = u_next
 
-        if debug:
-            if not torch.isfinite(mu).all() or not torch.isfinite(R).all():
-                print(f"[WARN] Non-finite values at step {k}")
-                print(
-                    _tensor_summary("mu", mu.cpu()),
-                    _tensor_summary("R", R.cpu()),
-                    _tensor_summary("u_cond", u_cond.cpu()),
-                    _tensor_summary("u_obs" if has_obs else "u_obs(None)", (u_obs if u_obs is not None else torch.tensor(0)).cpu()),
-                    sep="\n",
-                )
-            elif (not torch.isfinite(da_frame).all()) or (not torch.isfinite(noda_frame).all()):
-                print(f"[WARN] Decoder produced non-finite frame at step {k}")
-                print(
-                    _tensor_summary("mu", mu.cpu()),
-                    _tensor_summary("da_frame", da_frame.cpu()),
-                    _tensor_summary("noda_frame", noda_frame.cpu()),
-                    sep="\n",
-                )
-            elif k == 0:
-                print(f"Step {k}: u1_hold {u1_hold.shape}, mu {mu.shape}, R {R.shape}")
-
-    da_stack = torch.stack(preds, dim=0)  # [T, C, H, W]
+    da_stack = torch.stack(preds, dim=0)
     noda_stack = torch.stack(noda_preds, dim=0)
     return da_stack, noda_stack
 
@@ -405,7 +387,6 @@ def run_multi_da_experiment(
             sep="\n",
         )
 
-    # load channels/dim_z from saved config if present to avoid mismatch
     config_path = ckpt_dir / f"{ckpt_prefix}_config.json"
     if not config_path.exists():
         config_path = ckpt_dir / "stage1_config.json"
@@ -428,9 +409,9 @@ def run_multi_da_experiment(
         sigma_hat = sigma_hat.clone()
         sigma_hat[:dim_u1] = observation_variance ** 0.5
 
-    da_runs = []
-    noda_runs = []
-    gt_runs = []
+    da_runs: List[torch.Tensor] = []
+    noda_runs: List[torch.Tensor] = []
+    gt_runs: List[torch.Tensor] = []
 
     for i in range(num_runs):
         idx = min(start_T + i, len(dataset) - 1)
@@ -457,14 +438,14 @@ def run_multi_da_experiment(
         gt_runs.append(denorm_gt.cpu())
         if debug:
             print(
-                f"[DEBUG] Run {i}:" ,
+                f"[DEBUG] Run {i}:",
                 _tensor_summary("denorm_da", denorm_da),
                 _tensor_summary("denorm_noda", denorm_noda),
                 _tensor_summary("denorm_gt", denorm_gt),
                 sep="\n",
             )
 
-    da_stack = torch.stack(da_runs)  # [num_runs, T, C, H, W]
+    da_stack = torch.stack(da_runs)
     noda_stack = torch.stack(noda_runs)
     gt_stack = torch.stack(gt_runs)
 
