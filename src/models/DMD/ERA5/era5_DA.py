@@ -159,6 +159,7 @@ def run_multi_da_experiment(
 
     run_metrics = {"mse": [], "rrmse": [], "ssim": []}
     run_times = []
+    run_iterations = []
     first_run_states = None
 
     for run_idx in range(num_runs):
@@ -168,6 +169,7 @@ def run_multi_da_experiment(
         da_states = []
         noda_states = []
         total_da_time = 0.0
+        total_iterations = 0
 
         initial_state = normalized_groundtruth[0].to(device)
         b_background = executor.encode_state(initial_state)
@@ -194,6 +196,8 @@ def run_multi_da_experiment(
                     final_cost = intermediates.get("J", [None])[-1]
                     if final_cost is not None:
                         print(f"Step {step + 1}: final cost {final_cost}")
+                    if "J" in intermediates:
+                        total_iterations += len(intermediates["J"])
 
                 z_assimilated = (
                     z_assimilated if z_assimilated.ndim > 1 else z_assimilated.unsqueeze(0)
@@ -222,6 +226,7 @@ def run_multi_da_experiment(
             run_metrics[key].append(metrics[key])
 
         run_times.append(total_da_time)
+        run_iterations.append(total_iterations)
         print(f"Run {run_idx + 1} assimilation time: {total_da_time:.2f}s")
 
     save_dir = f"../../../../results/{model_name}/ERA5/DA"
@@ -229,6 +234,11 @@ def run_multi_da_experiment(
 
     def prefixed(name: str) -> str:
         return f"{save_prefix}{name}" if save_prefix else name
+
+    def _as_numpy(value):
+        if value is None:
+            return np.array(None, dtype=object)
+        return np.array(value)
 
     # Save one run's DA states
     if first_run_states is not None:
@@ -265,6 +275,27 @@ def run_multi_da_experiment(
         )
 
     print(f"Average assimilation time: {np.mean(run_times):.2f}s over {num_runs} runs")
+
+    time_info = {
+        "assimilation_time": run_times,
+        "assimilation_time_mean": float(np.mean(run_times)),
+        "assimilation_time_std": float(np.std(run_times)),
+        "iteration_counts": run_iterations,
+        "iteration_count_mean": float(np.mean(run_iterations)),
+        "iteration_count_std": float(np.std(run_iterations)),
+    }
+    time_info_path = os.path.join(save_dir, prefixed("time_info.npz"))
+    np.savez(
+        time_info_path,
+        assimilation_time=_as_numpy(run_times),
+        assimilation_time_mean=time_info["assimilation_time_mean"],
+        assimilation_time_std=time_info["assimilation_time_std"],
+        iteration_counts=_as_numpy(run_iterations),
+        iteration_count_mean=time_info["iteration_count_mean"],
+        iteration_count_std=time_info["iteration_count_std"],
+    )
+    print(f"Saved time info to {time_info_path}")
+    return time_info
 
 
 if __name__ == "__main__":
