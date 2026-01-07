@@ -26,6 +26,8 @@ if src_directory not in sys.path:
 
 from src.utils.Dataset import ERA5Dataset
 
+SAVE_PREFIX = "interobs_direct_era5_"
+
 @contextlib.contextmanager
 def working_directory(path: Path):
     """Temporarily change the working directory."""
@@ -110,19 +112,20 @@ def run_all_models():
         "observation_schedule": [0, 10, 20, 30, 40],
         "observation_variance": None,
         "window_length": 50,
-        "num_runs": 1,
+        "num_runs": 5,
         "start_T": 0,
     }
 
     repo_root = Path(__file__).resolve().parents[2]
     models: Dict[str, Dict[str, object]] = {
-        "CAE_Koopman": {"module": "src.models.CAE_Koopman.ERA5.era5_DA"},
-        "CAE_Linear": {"module": "src.models.CAE_Linear.ERA5.era5_DA"},
-        "CAE_Weaklinear": {"module": "src.models.CAE_Weaklinear.ERA5.era5_DA"},
-        "CAE_MLP": {"module": "src.models.CAE_MLP.ERA5.era5_DA"},
-        "DMD": {"module": "src.models.DMD.ERA5.era5_DA"},
-        "discreteCGKN": {"module": "src.models.discreteCGKN.ERA5.era5_DA"},
-        "DBF": {"module": "src.models.DBF.ERA5.era5_DA"},
+        "CAE_Koopman": {"module": "src.models.CAE_Koopman.ERA5.era5_DA", "supports_prefix": True},
+        "CAE_Linear": {"module": "src.models.CAE_Linear.ERA5.era5_DA", "supports_prefix": True},
+        "CAE_Weaklinear": {"module": "src.models.CAE_Weaklinear.ERA5.era5_DA", "supports_prefix": True},
+        "CAE_MLP": {"module": "src.models.CAE_MLP.ERA5.era5_DA", "supports_prefix": True},
+        "DMD": {"module": "src.models.DMD.ERA5.era5_DA", "supports_prefix": True},
+        # "discreteCGKN": {"module": "src.models.discreteCGKN.ERA5.era5_DA", "supports_prefix": True},
+        "CGKN": {"module": "src.models.CGKN.ERA5.era5_DA", "supports_prefix": True},
+        "DBF": {"module": "src.models.DBF.ERA5.era5_DA", "supports_prefix": True},
     }
 
     groundtruth = load_groundtruth(
@@ -141,6 +144,9 @@ def run_all_models():
         start_time = time.time()
         with working_directory(model_dir):
             module = importlib.import_module(info["module"])
+            run_kwargs = dict(experiment_config)
+            if info.get("supports_prefix"):
+                run_kwargs["save_prefix"] = SAVE_PREFIX
             try:
                 time_info = module.run_multi_da_experiment(model_name=model_name, **experiment_config)
             except Exception as exc:
@@ -152,7 +158,8 @@ def run_all_models():
         print(f"{model_name} total wall time: {elapsed:.2f}s")
 
         result_dir = repo_root / "results" / model_name / "ERA5" / "DA"
-        multi_path = result_dir / "multi.npy"
+        prefix = SAVE_PREFIX if info.get("supports_prefix") else ""
+        multi_path = result_dir / f"{prefix}multi.npy"
         if not multi_path.exists():
             print(f"{multi_path} not found; unable to compute metrics.")
             continue

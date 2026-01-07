@@ -114,7 +114,7 @@ def run_all_models():
         "observation_schedule": observation_schedule,
         "observation_variance": None,
         "window_length": window_length,
-        "num_runs": 1,
+        "num_runs": 5,
         "start_T": 0,
     }
 
@@ -125,9 +125,9 @@ def run_all_models():
         "CAE_Weaklinear": {"module": "src.models.CAE_Weaklinear.ERA5.era5_DA", "supports_prefix": True},
         "CAE_MLP": {"module": "src.models.CAE_MLP.ERA5.era5_DA", "supports_prefix": True},
         "DMD": {"module": "src.models.DMD.ERA5.era5_DA", "supports_prefix": True},
-        "discreteCGKN": {"module": "src.models.discreteCGKN.ERA5.era5_DA", "supports_prefix": True},
-        "DBF": {"module": "src.models.DBF.ERA5.era5_DA", "supports_prefix": True},
+        # "discreteCGKN": {"module": "src.models.discreteCGKN.ERA5.era5_DA", "supports_prefix": True},
         "CGKN": {"module": "src.models.CGKN.ERA5.era5_DA", "supports_prefix": True},
+        "DBF": {"module": "src.models.DBF.ERA5.era5_DA", "supports_prefix": True},
     }
 
     groundtruth = load_groundtruth(

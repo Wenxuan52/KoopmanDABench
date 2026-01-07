@@ -3,6 +3,10 @@
 This script loads ``multi_meanstd.npz`` files produced by each model's
 assimilation experiment and renders a 5x3 grid comparing per-channel
 MSE/RRMSE/SSIM across models.
+
+Update:
+- Add SAVE_PREFIX so you can switch among different experiment folders/files.
+  Example: SAVE_PREFIX = "fullobs_direct_era5_"
 """
 
 from __future__ import annotations
@@ -16,6 +20,13 @@ import numpy as np
 
 # Ensure matplotlib can write cache files in restricted environments
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib_config")
+
+# =========================
+# Experiment prefix switch
+# =========================
+# Example: "fullobs_direct_era5_"
+# Set "" to use the original paths with no prefix.
+SAVE_PREFIX = "fullobs_direct_era5_"
 
 # Channel and metric labels
 CHANNEL_LABELS: List[str] = [
@@ -32,6 +43,7 @@ METRIC_KEYS: List[Tuple[str, str]] = [
 ]
 
 # Models to compare (name, relative results path from repo root)
+# We will inject SAVE_PREFIX before "multi_meanstd.npz".
 MODEL_SPECS: List[Tuple[str, Path]] = [
     ("CAE_Koopman", Path("results/CAE_Koopman/ERA5/DA/multi_meanstd.npz")),
     ("CAE_Linear", Path("results/CAE_Linear/ERA5/DA/multi_meanstd.npz")),
@@ -54,20 +66,40 @@ MODEL_COLORS: List[str] = [
 ]
 
 
-def load_model_metrics(repo_root: Path) -> Dict[str, Dict[str, np.ndarray]]:
+def with_prefix(npz_path: Path, prefix: str) -> Path:
+    """Insert prefix before the filename.
+
+    Example:
+      results/.../DA/multi_meanstd.npz
+    -> results/.../DA/{prefix}multi_meanstd.npz
+    """
+    if not prefix:
+        return npz_path
+    return npz_path.with_name(f"{prefix}{npz_path.name}")
+
+
+def load_model_metrics(repo_root: Path, prefix: str) -> Dict[str, Dict[str, np.ndarray]]:
     """Load aggregated metrics for each model.
 
     Returns a mapping: model_name -> metric_key -> ndarray with shape
     (steps, channels, 2). Only DA values (index 0 on the last axis) are
     used in the visualization.
     """
-
     model_data: Dict[str, Dict[str, np.ndarray]] = {}
     for (name, rel_path), color in zip(MODEL_SPECS, MODEL_COLORS):
-        npz_path = repo_root / rel_path
+        base_path = repo_root / rel_path
+        npz_path = with_prefix(base_path, prefix)
+
         if not npz_path.exists():
-            print(f"[WARN] Missing metrics for {name}: {npz_path}")
-            continue
+            # Helpful fallback: if prefixed doesn't exist, try unprefixed
+            fallback = base_path
+            if fallback.exists():
+                print(f"[WARN] Missing prefixed metrics for {name}: {npz_path} (fallback to {fallback})")
+                npz_path = fallback
+            else:
+                print(f"[WARN] Missing metrics for {name}: {npz_path} (and fallback {fallback} not found)")
+                continue
+
         data = np.load(npz_path)
         model_data[name] = {"color": color}
         for key, _ in METRIC_KEYS:
@@ -78,26 +110,9 @@ def load_model_metrics(repo_root: Path) -> Dict[str, Dict[str, np.ndarray]]:
 
 
 def aggregate_da_stats(mean_arr: np.ndarray, std_arr: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """Compute step-averaged DA mean and std per channel.
-
-    Parameters
-    ----------
-    mean_arr : ndarray
-        Array of shape (steps, channels, 2) containing mean metrics.
-    std_arr : ndarray
-        Array of shape (steps, channels, 2) containing std metrics.
-
-    Returns
-    -------
-    da_mean : ndarray (channels,)
-        Mean of the DA metric across assimilation steps.
-    da_std : ndarray (channels,)
-        Average of the per-step std across steps for DA.
-    """
-
+    """Compute step-averaged DA mean and std per channel."""
     mean_steps = mean_arr[:, :, 0]  # (steps, channels)
     std_steps = std_arr[:, :, 0]  # (steps, channels)
-
     da_mean = mean_steps.mean(axis=0)
     da_std = std_steps.mean(axis=0)
     return da_mean, da_std
@@ -105,7 +120,10 @@ def aggregate_da_stats(mean_arr: np.ndarray, std_arr: np.ndarray) -> Tuple[np.nd
 
 def build_comparison_figure(model_data: Dict[str, Dict[str, np.ndarray]], output_path: Path) -> None:
     fig, axes = plt.subplots(
-        nrows=len(CHANNEL_LABELS), ncols=len(METRIC_KEYS), figsize=(18, 14), sharex=True
+        nrows=len(CHANNEL_LABELS),
+        ncols=len(METRIC_KEYS),
+        figsize=(18, 14),
+        sharex=True,
     )
 
     model_names = list(model_data.keys())
@@ -136,22 +154,39 @@ def build_comparison_figure(model_data: Dict[str, Dict[str, np.ndarray]], output
                 ax.set_xlabel("Assimilation step")
             ax.grid(True, linestyle="--", alpha=0.4)
 
-    fig.legend(handles, model_names, loc="upper center", ncol=len(model_names), bbox_to_anchor=(0.5, 1.02))
-    fig.tight_layout(rect=[0, 0, 1, 0.98])
+    # Unified legend at the very bottom
+    legend_fontsize = 13
+    fig.legend(
+        handles,
+        model_names,
+        loc="lower center",
+        ncol=min(len(model_names), 7),
+        bbox_to_anchor=(0.5, 0.01),
+        frameon=False,
+        fontsize=legend_fontsize,
+        handlelength=2.5,
+        columnspacing=1.2,
+        handletextpad=0.6,
+    )
+
+    # Leave space at bottom for legend
+    fig.tight_layout(rect=[0, 0.06, 1, 1.0])
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=300)
+    fig.savefig(output_path, dpi=300, bbox_inches="tight")
     print(f"Saved comparison figure to {output_path}")
 
 
 def main() -> None:
     repo_root = Path(__file__).resolve().parents[2]
-    model_data = load_model_metrics(repo_root)
+    model_data = load_model_metrics(repo_root, prefix=SAVE_PREFIX)
     if not model_data:
         print("No metrics found; aborting plot generation.")
         return
 
     figures_dir = repo_root / "results" / "Comparison" / "figures"
-    output_path = figures_dir / "era5_DA_comparison.png"
+    suffix = SAVE_PREFIX if SAVE_PREFIX else "default_"
+    output_path = figures_dir / f"{suffix}era5_DA_comparison.png"
     build_comparison_figure(model_data, output_path)
 
 
