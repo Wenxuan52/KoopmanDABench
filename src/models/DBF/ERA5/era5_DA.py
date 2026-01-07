@@ -36,6 +36,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from time import perf_counter
 from typing import Dict, Iterable, Tuple
 
 import numpy as np
@@ -203,7 +204,7 @@ def run_multi_da_experiment(
     checkpoint_name: str = "best_model.pt",
     use_rho: bool = True,
     save_prefix: str | None = None,
-) -> Dict[str, list]:
+) -> Dict[str, object]:
     set_seed(42)
     device = set_device()
     print(f"Using device: {device}")
@@ -323,6 +324,7 @@ def run_multi_da_experiment(
 
         da_states = []
         noda_states = []
+        run_start = perf_counter()
 
         for step in range(window_length):
             mu_prior, cov_prior = koopman.predict(mu_prev, cov_prev)
@@ -365,7 +367,7 @@ def run_multi_da_experiment(
         for key in run_metrics:
             run_metrics[key].append(metrics[key])
 
-        run_times.append(0.0)
+        run_times.append(perf_counter() - run_start)
         print(f"Run {run_idx + 1} completed.")
 
     save_dir = Path(f"../../../../results/{model_name}/ERA5/DA")
@@ -373,6 +375,11 @@ def run_multi_da_experiment(
 
     def prefixed(name: str) -> str:
         return f"{save_prefix}{name}" if save_prefix else name
+
+    def _as_numpy(value):
+        if value is None:
+            return np.array(None, dtype=object)
+        return np.array(value)
 
     if first_run_states is not None:
         np.save(
@@ -402,7 +409,27 @@ def run_multi_da_experiment(
         )
 
     print(f"Average assimilation time: {np.mean(run_times):.2f}s over {num_runs} runs")
-    return run_metrics
+
+    time_info = {
+        "assimilation_time": run_times,
+        "assimilation_time_mean": float(np.mean(run_times)),
+        "assimilation_time_std": float(np.std(run_times)),
+        "iteration_counts": None,
+        "iteration_count_mean": None,
+        "iteration_count_std": None,
+    }
+    time_info_path = save_dir / prefixed("time_info.npz")
+    np.savez(
+        time_info_path,
+        assimilation_time=_as_numpy(run_times),
+        assimilation_time_mean=time_info["assimilation_time_mean"],
+        assimilation_time_std=time_info["assimilation_time_std"],
+        iteration_counts=_as_numpy(None),
+        iteration_count_mean=_as_numpy(None),
+        iteration_count_std=_as_numpy(None),
+    )
+    print(f"Saved time info to {time_info_path}")
+    return time_info
 
 
 if __name__ == "__main__":

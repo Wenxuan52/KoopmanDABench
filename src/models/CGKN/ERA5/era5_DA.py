@@ -10,6 +10,7 @@ import math
 import os
 import sys
 from pathlib import Path
+from time import perf_counter
 from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
@@ -521,6 +522,7 @@ def run_multi_da_experiment(
         print(f"\nStarting assimilation run {run_idx + 1}/{num_runs}")
         set_seed(42 + run_idx)
 
+        run_start = perf_counter()
         obs_var = observation_variance if observation_variance is not None else obs_noise_std**2
         mu_post, _, u1_used = CGFilter(
             cgn,
@@ -536,6 +538,7 @@ def run_multi_da_experiment(
         mu_v = mu_post.squeeze(-1)
         da_fields = decoder(mu_v.unsqueeze(0)).squeeze(0).detach().cpu()
         da_stack = da_fields[1:]
+        run_times.append(perf_counter() - run_start)
 
         tspan = torch.linspace(0.0, window_length * dt, window_length + 1, device=device)
         v0 = encoder(normalized_groundtruth[:1].unsqueeze(0).to(device))[:, 0, :]
@@ -552,13 +555,16 @@ def run_multi_da_experiment(
         for key in run_metrics:
             run_metrics[key].append(metrics[key])
 
-        run_times.append(0.0)
-
     save_dir = results_dir / "DA"
     os.makedirs(save_dir, exist_ok=True)
 
     def prefixed(name: str) -> str:
         return f"{save_prefix}{name}" if save_prefix else name
+
+    def _as_numpy(value):
+        if value is None:
+            return np.array(None, dtype=object)
+        return np.array(value)
 
     if first_run_states is not None:
         np.save(save_dir / prefixed("multi.npy"), safe_denorm(first_run_states, dataset).numpy())
@@ -586,6 +592,27 @@ def run_multi_da_experiment(
 
     if run_times:
         print(f"Average assimilation time: {np.mean(run_times):.2f}s over {num_runs} runs")
+
+    time_info = {
+        "assimilation_time": run_times,
+        "assimilation_time_mean": float(np.mean(run_times)) if run_times else 0.0,
+        "assimilation_time_std": float(np.std(run_times)) if run_times else 0.0,
+        "iteration_counts": None,
+        "iteration_count_mean": None,
+        "iteration_count_std": None,
+    }
+    time_info_path = save_dir / prefixed("time_info.npz")
+    np.savez(
+        time_info_path,
+        assimilation_time=_as_numpy(run_times),
+        assimilation_time_mean=time_info["assimilation_time_mean"],
+        assimilation_time_std=time_info["assimilation_time_std"],
+        iteration_counts=_as_numpy(None),
+        iteration_count_mean=_as_numpy(None),
+        iteration_count_std=_as_numpy(None),
+    )
+    print(f"Saved time info to {time_info_path}")
+    return time_info
 
 
 if __name__ == "__main__":

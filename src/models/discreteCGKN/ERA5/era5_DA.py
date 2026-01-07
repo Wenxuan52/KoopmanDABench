@@ -13,6 +13,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from time import perf_counter
 from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
@@ -452,11 +453,13 @@ def run_multi_da_experiment(
     da_runs: List[torch.Tensor] = []
     noda_runs: List[torch.Tensor] = []
     gt_runs: List[torch.Tensor] = []
+    run_times: List[float] = []
 
     for i in range(num_runs):
         idx = min(start_T + i, len(dataset) - 1)
         pre_seq, post_seq = dataset[idx]
         full_seq = torch.cat([pre_seq[:1], post_seq], dim=0)  # [T+1, C, H, W]
+        run_start = perf_counter()
         da_pred, noda_pred = run_da_single(
             encoder,
             decoder,
@@ -469,6 +472,7 @@ def run_multi_da_experiment(
             device_t,
             debug=debug,
         )
+        run_times.append(perf_counter() - run_start)
         gt = full_seq[1 : window_length + 1]
         denorm_da = torch.nan_to_num(denorm(da_pred), nan=0.0, posinf=0.0, neginf=0.0)
         denorm_noda = torch.nan_to_num(denorm(noda_pred), nan=0.0, posinf=0.0, neginf=0.0)
@@ -513,6 +517,11 @@ def run_multi_da_experiment(
     def prefixed(name: str) -> str:
         return f"{save_prefix}{name}" if save_prefix else name
 
+    def _as_numpy(value):
+        if value is None:
+            return np.array(None, dtype=object)
+        return np.array(value)
+
     np.save(out_dir / prefixed("multi.npy"), da_stack[0].detach().numpy())
     np.save(out_dir / prefixed("noda.npy"), noda_stack[0].detach().numpy())
     np.savez(
@@ -533,7 +542,26 @@ def run_multi_da_experiment(
             f"{key.upper()} mean over runs: {float(np.mean(run_values)):.6f}, std: {float(np.std(run_values)):.6f}"
         )
 
-    return run_metrics[0]
+    time_info = {
+        "assimilation_time": run_times,
+        "assimilation_time_mean": float(np.mean(run_times)) if run_times else 0.0,
+        "assimilation_time_std": float(np.std(run_times)) if run_times else 0.0,
+        "iteration_counts": None,
+        "iteration_count_mean": None,
+        "iteration_count_std": None,
+    }
+    time_info_path = out_dir / prefixed("time_info.npz")
+    np.savez(
+        time_info_path,
+        assimilation_time=_as_numpy(run_times),
+        assimilation_time_mean=time_info["assimilation_time_mean"],
+        assimilation_time_std=time_info["assimilation_time_std"],
+        iteration_counts=_as_numpy(None),
+        iteration_count_mean=_as_numpy(None),
+        iteration_count_std=_as_numpy(None),
+    )
+    print(f"Saved time info to {time_info_path}")
+    return time_info
 
 
 def main():

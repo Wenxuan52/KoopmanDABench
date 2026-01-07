@@ -8,7 +8,7 @@ channel-wise metrics, and records wall-clock time.
 from __future__ import annotations
 
 import contextlib
-import subprocess
+import importlib
 import sys
 import os
 import time
@@ -140,30 +140,14 @@ def run_all_models():
 
         start_time = time.time()
         with working_directory(model_dir):
-            cfg = ", ".join(
-                f"{key}={repr(value)}" for key, value in experiment_config.items()
-            )
-            cmd = [
-                sys.executable,
-                "-c",
-                (
-                    "import importlib; "
-                    f"module = importlib.import_module('{info['module']}'); "
-                    f"module.run_multi_da_experiment(model_name='{model_name}', {cfg})"
-                ),
-            ]
-
-            env = os.environ.copy()
-            env["PYTHONPATH"] = os.pathsep.join(
-                [str(repo_root)]
-                + ([env["PYTHONPATH"]] if "PYTHONPATH" in env else [])
-            )
-
+            module = importlib.import_module(info["module"])
             try:
-                subprocess.run(cmd, cwd=model_dir, env=env, check=True)
-            except subprocess.CalledProcessError as exc:
+                time_info = module.run_multi_da_experiment(model_name=model_name, **experiment_config)
+            except Exception as exc:
                 print(f"{model_name} run failed: {exc}")
                 continue
+            if time_info is not None:
+                print(f"{model_name} time info: {time_info}")
         elapsed = time.time() - start_time
         print(f"{model_name} total wall time: {elapsed:.2f}s")
 

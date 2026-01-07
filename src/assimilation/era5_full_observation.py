@@ -7,8 +7,8 @@ DA entry point and compared against the ground-truth slice.
 from __future__ import annotations
 
 import contextlib
+import importlib
 import os
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -145,31 +145,17 @@ def run_all_models():
 
         start_time = time.time()
         with working_directory(model_dir):
-            cfg_items = [f"{key}={repr(value)}" for key, value in experiment_config.items()]
+            module = importlib.import_module(info["module"])
+            run_kwargs = dict(experiment_config)
             if info.get("supports_prefix"):
-                cfg_items.append(f"save_prefix={repr(SAVE_PREFIX)}")
-            cfg = ", ".join(cfg_items)
-            cmd = [
-                sys.executable,
-                "-c",
-                (
-                    "import importlib; "
-                    f"module = importlib.import_module('{info['module']}'); "
-                    f"module.run_multi_da_experiment(model_name='{model_name}', {cfg})"
-                ),
-            ]
-
-            env = os.environ.copy()
-            env["PYTHONPATH"] = os.pathsep.join(
-                [str(repo_root)]
-                + ([env["PYTHONPATH"]] if "PYTHONPATH" in env else [])
-            )
-
+                run_kwargs["save_prefix"] = SAVE_PREFIX
             try:
-                subprocess.run(cmd, cwd=model_dir, env=env, check=True)
-            except subprocess.CalledProcessError as exc:
+                time_info = module.run_multi_da_experiment(model_name=model_name, **run_kwargs)
+            except Exception as exc:
                 print(f"{model_name} run failed: {exc}")
                 continue
+            if time_info is not None:
+                print(f"{model_name} time info: {time_info}")
         elapsed = time.time() - start_time
         print(f"{model_name} total wall time: {elapsed:.2f}s")
 
