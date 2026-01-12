@@ -108,7 +108,7 @@ def run_all_models():
 
     experiment_config = {
         "obs_ratio": 0.15,
-        "obs_noise_std": 0.05,
+        "obs_noise_std": 0.00,
         "observation_schedule": [0, 10, 20, 30, 40],
         "observation_variance": None,
         "window_length": 50,

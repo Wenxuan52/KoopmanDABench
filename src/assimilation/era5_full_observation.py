@@ -109,8 +109,8 @@ def run_all_models():
     window_length = 20
     observation_schedule = list(range(window_length))
     experiment_config = {
-        "obs_ratio": 1.0,
-        "obs_noise_std": 0.05,
+        "obs_ratio": 0.15,
+        "obs_noise_std": 0.00,
         "observation_schedule": observation_schedule,
         "observation_variance": None,
         "window_length": window_length,
