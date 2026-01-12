@@ -2,9 +2,24 @@ import os
 import sys
 from datetime import datetime, timedelta
 
+import os
+
+# Pick a writable cache base (prefer SLURM_TMPDIR, else /tmp, else scratch)
+TMP_BASE = os.environ.get("SLURM_TMPDIR") or os.environ.get("TMPDIR") or "/scratch_root/wy524/.cache"
+MPLDIR = os.path.join(TMP_BASE, "mpl_config")
+CARTOPYDIR = os.path.join(TMP_BASE, "cartopy_data")
+
+os.makedirs(MPLDIR, exist_ok=True)
+os.makedirs(CARTOPYDIR, exist_ok=True)
+
+os.environ.setdefault("MPLCONFIGDIR", MPLDIR)
+os.environ.setdefault("CARTOPY_DATA_DIR", CARTOPYDIR)
+
 import numpy as np
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
+import cartopy
+cartopy.config["data_dir"] = os.environ["CARTOPY_DATA_DIR"]
 from matplotlib.colors import BoundaryNorm
 from matplotlib.animation import FuncAnimation, PillowWriter
 
@@ -258,13 +273,13 @@ def make_era5_da_gif(
 
 if __name__ == "__main__":
     make_era5_da_gif(
-        data_path="data/ERA5/ERA5_data/test_seq_state.h5",
-        min_path="data/ERA5/ERA5_data/min_val.npy",
-        max_path="data/ERA5/ERA5_data/max_val.npy",
-        results_root="results",
+        data_path="../../data/ERA5/ERA5_data/test_seq_state.h5",
+        min_path="../../data/ERA5/ERA5_data/min_val.npy",
+        max_path="../../data/ERA5/ERA5_data/max_val.npy",
+        results_root="../../results",
         result_filename="fullobs_direct_era5_multi.npy",
-        out_path="results/Comparison/figures/era5_da_fullobs.gif",
+        out_path="../../results/Comparison/figures/era5_da_fullobs.gif",
         start_t=0,
-        start_datetime_str="2018-05-05 00:00",
+        start_datetime_str="2018-01-01 04:00",
         hours_per_frame=4,
     )
