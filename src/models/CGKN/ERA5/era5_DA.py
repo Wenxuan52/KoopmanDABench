@@ -26,7 +26,7 @@ sys.path.append(src_directory)
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib_config")
 
 from src.utils.Dataset import ERA5Dataset
-from era5_model import ERA5Decoder, ERA5Encoder, ERA5_settings
+from src.models.CGKN.ERA5.era5_model import ERA5Decoder, ERA5Encoder, ERA5_settings
 
 
 # -----------------------------------------------------------------------------

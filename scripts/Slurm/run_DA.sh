@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH --job-name=run_DA_full
+#SBATCH --job-name=run_DA
 #SBATCH --partition=root
 #SBATCH --qos=long
 #SBATCH --gres=gpu:1

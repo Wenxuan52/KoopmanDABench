@@ -148,7 +148,8 @@ def run_all_models():
             if info.get("supports_prefix"):
                 run_kwargs["save_prefix"] = SAVE_PREFIX
             try:
-                time_info = module.run_multi_da_experiment(model_name=model_name, **experiment_config)
+                time_info = module.run_multi_da_experiment(model_name=model_name, **run_kwargs)
+
             except Exception as exc:
                 print(f"{model_name} run failed: {exc}")
                 continue
