@@ -1,10 +1,24 @@
-import os
 import sys
 from datetime import datetime, timedelta
+
+import os
+
+# Pick a writable cache base (prefer SLURM_TMPDIR, else /tmp, else scratch)
+TMP_BASE = os.environ.get("SLURM_TMPDIR") or os.environ.get("TMPDIR") or "/scratch_root/wy524/.cache"
+MPLDIR = os.path.join(TMP_BASE, "mpl_config")
+CARTOPYDIR = os.path.join(TMP_BASE, "cartopy_data")
+
+os.makedirs(MPLDIR, exist_ok=True)
+os.makedirs(CARTOPYDIR, exist_ok=True)
+
+os.environ.setdefault("MPLCONFIGDIR", MPLDIR)
+os.environ.setdefault("CARTOPY_DATA_DIR", CARTOPYDIR)
 
 import numpy as np
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
+import cartopy
+cartopy.config["data_dir"] = os.environ["CARTOPY_DATA_DIR"]
 from matplotlib.colors import BoundaryNorm
 from matplotlib.animation import FuncAnimation, PillowWriter
 
@@ -139,11 +153,12 @@ def make_era5_da_gif_separate(
         fig, axes = plt.subplots(
             2,
             8,
-            figsize=(28, 8),
+            figsize=(30, 7),
             subplot_kw={"projection": ccrs.Robinson()},
             constrained_layout=False,
         )
-        plt.subplots_adjust(wspace=0.12, hspace=0.4)
+        plt.subplots_adjust(left=0.02, right=0.98, top=0.86, bottom=0.10,
+                    wspace=0.18, hspace=0.02)
 
         def get_levels_norm_cmap(row, col):
             if COL_LABELS[col] == "GroundTruth" and is_error_row(row):
@@ -158,7 +173,7 @@ def make_era5_da_gif_separate(
 
         def draw_frame(t_idx, with_colorbar=False):
             current_time = start_datetime + timedelta(hours=hours_per_frame * t_idx)
-            fig.suptitle(current_time.strftime("%Y-%m-%d %H:%M"), fontsize=26, fontweight="bold", y=0.93)
+            fig.suptitle(f"{CHANNEL_LABELS[ch]} {current_time:%Y-%m-%d %H:%M}", fontsize=26, fontweight="bold", y=0.93)
 
             for row in range(2):
                 for col in range(8):
@@ -199,17 +214,17 @@ def make_era5_da_gif_separate(
                         interpolation="nearest",
                     )
 
-                    if col == 0:
-                        label = CHANNEL_LABELS[ch] if not is_error_row(row) else "Error"
-                        ax.text(
-                            -0.2, 0.5, label,
-                            transform=ax.transAxes,
-                            ha="center", va="center",
-                            fontsize=16, fontweight="bold", rotation=90,
-                        )
+                    # if col == 0:
+                    #     label = CHANNEL_LABELS[ch] if not is_error_row(row) else "Error"
+                    #     ax.text(
+                    #         -0.2, 0.5, label,
+                    #         transform=ax.transAxes,
+                    #         ha="center", va="center",
+                    #         fontsize=16, fontweight="bold", rotation=90,
+                    #     )
 
                     if row == 0:
-                        ax.set_title(model_name, fontsize=18, fontweight="bold", pad=16)
+                        ax.set_title(model_name, fontsize=20, fontweight="bold", pad=16)
 
                     if with_colorbar:
                         cbar = fig.colorbar(
@@ -253,13 +268,13 @@ def make_era5_da_gif_separate(
 
 if __name__ == "__main__":
     make_era5_da_gif_separate(
-        data_path="data/ERA5/ERA5_data/test_seq_state.h5",
-        min_path="data/ERA5/ERA5_data/min_val.npy",
-        max_path="data/ERA5/ERA5_data/max_val.npy",
-        results_root="results",
+        data_path="../../data/ERA5/ERA5_data/test_seq_state.h5",
+        min_path="../../data/ERA5/ERA5_data/min_val.npy",
+        max_path="../../data/ERA5/ERA5_data/max_val.npy",
+        results_root="../../results",
         result_filename="fullobs_direct_era5_multi.npy",
-        out_dir="results/Comparison/figures",
+        out_dir="../../results/Comparison/figures",
         start_t=0,
-        start_datetime_str="2018-05-05 00:00",
+        start_datetime_str="2018-01-01 04:00",
         hours_per_frame=4,
     )

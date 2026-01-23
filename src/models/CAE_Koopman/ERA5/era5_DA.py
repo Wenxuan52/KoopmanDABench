@@ -92,9 +92,9 @@ def compute_metrics(
 def run_multi_da_experiment(
     obs_ratio: float = 0.15,
     obs_noise_std: float = 0.05,
-    observation_schedule: list = [0, 10, 20, 30, 40],
+    observation_schedule: list = [0, 10, 20],
     observation_variance: float | None = None,
-    window_length: int = 50,
+    window_length: int = 30,
     num_runs: int = 5,
     early_stop_config: Tuple[int, float] = (100, 1e-3),
     start_T: int = 0,
@@ -140,18 +140,20 @@ def run_multi_da_experiment(
 
     # Observations (fixed positions, fixed ratio) at specific steps
     obs_handler = UnifiedDynamicSparseObservationHandler(
-        max_obs_ratio=obs_ratio, min_obs_ratio=obs_ratio, seed=42, noise_std=obs_noise_std
+        max_obs_ratio=obs_ratio,
+        min_obs_ratio=obs_ratio,
+        seed=42,
+        noise_std=obs_noise_std,
+        fixed_valid_mask=True,   # 你现在的设定
     )
     sample_shape = normalized_groundtruth[1].shape
     obs_handler.generate_unified_observations(sample_shape, list(range(window_length)))
 
-    sparse_observations = []
-    for idx in range(window_length):
-        sparse = obs_handler.apply_unified_observation(
-            normalized_groundtruth[idx + 1], idx, add_noise=True
-        )
-        sparse_observations.append(sparse)
-    sparse_observations = torch.stack(sparse_observations).to(device)
+    obs_steps = sorted(observation_schedule)
+    assert all(0 <= t < window_length for t in obs_steps), "observation_schedule 越界"
+    gaps = [obs_steps[i + 1] - obs_steps[i] for i in range(len(obs_steps) - 1)]
+    if len(obs_steps) == 1:
+        gaps = None
 
     # observation_schedule = [0, 10, 20, 30, 40]
 
@@ -170,80 +172,77 @@ def run_multi_da_experiment(
     run_times = []
     run_iterations = []
     first_run_states = None
+    first_run_original_states = None
 
     for run_idx in range(num_runs):
         print(f"\nStarting assimilation run {run_idx + 1}/{num_runs}")
         set_seed(42 + run_idx)
 
+        # ===== 1) 背景（t=1） =====
+        x0 = normalized_groundtruth[0].to(device).unsqueeze(0)
+        z1_background = forward_model.latent_forward(forward_model.K_S(x0))  # 对应 step=0 的预测（t=1）
+        background_state = z1_background.ravel()
+
+        # ===== 2) 生成本 run 的观测序列（只取 schedule 时刻）=====
+        obs_list = []
+
+        for t in obs_steps:
+            y_t = obs_handler.apply_unified_observation(
+                normalized_groundtruth[t + 1].to(device),  # 真值在 t+1
+                t,                                         # mask idx（你生成的是 0..window_length-1）
+                add_noise=True,                             # 每个 run 不同噪声
+            )
+            obs_list.append(y_t)
+        observations = torch.stack(obs_list).to(device)  # shape (K, m)
+
+        # ===== 3) 整窗 4D-Var 同化（一次）=====
+        z1_assimilated, intermediates, elapsed = executor.assimilate_step(
+            observations=observations,
+            background_state=background_state,
+            observation_time_idx=0,                 # 固定 mask 时无所谓；给 0 即可
+            observation_time_steps=obs_steps,       # 例如 [0,10,20,30,40]
+            gaps=gaps,                              # 例如 [10,10,10,10]
+            B=B,
+            R=R,
+        )
+
+        run_times.append(float(elapsed))
+        if intermediates and "J" in intermediates:
+            run_iterations.append(len(intermediates["J"]))
+            print(f"Final cost: {intermediates['J'][-1]}  | iters: {len(intermediates['J'])}")
+        else:
+            run_iterations.append(0)
+
+        # ===== 4) 用同化后的 z1 roll out 得到 window_length 帧 DA 轨迹 =====
+        if z1_assimilated.ndim == 1:
+            z = z1_assimilated.unsqueeze(0)
+        else:
+            z = z1_assimilated
+
         da_states = []
-        noda_states = []
-        total_da_time = 0.0
-        total_iterations = 0
-
-        current_state = normalized_groundtruth[0].to(device).unsqueeze(0)
-        z_background = forward_model.latent_forward(forward_model.K_S(current_state))
-        noda_background = z_background.clone()
-
         for step in range(window_length):
-            if step in observation_schedule:
-                obs_vector = sparse_observations[step]
-                obs_stack = torch.stack(
-                    [obs_vector, obs_vector]
-                )  # duplicated to satisfy 4D-Var
-                background_state = z_background.ravel()
+            da_states.append(executor.decode_latent(z).squeeze(0).detach().cpu())
+            z = forward_model.latent_forward(z)
 
-                z_assimilated, intermediates, elapsed = executor.assimilate_step(
-                    observations=obs_stack,
-                    background_state=background_state,
-                    observation_time_idx=step,
-                    observation_time_steps=[0, 1],
-                    gaps=[1],
-                    B=B,
-                    R=R,
-                )
+        # ===== 5) NoDA 基线：从背景 z1_background roll out =====
+        z = z1_background.clone()
+        noda_states = []
+        for step in range(window_length):
+            noda_states.append(executor.decode_latent(z).squeeze(0).detach().cpu())
+            z = forward_model.latent_forward(z)
 
-                total_da_time += elapsed
-                if intermediates:
-                    final_cost = intermediates.get("J", [None])[-1]
-                    if final_cost is not None:
-                        print(f"Step {step + 1}: final cost {final_cost}")
-                    if "J" in intermediates:
-                        total_iterations += len(intermediates["J"])
-
-                z_assimilated = (
-                    z_assimilated
-                    if z_assimilated.ndim > 1
-                    else z_assimilated.unsqueeze(0)
-                )
-                decoded_assim = (
-                    executor.decode_latent(z_assimilated).squeeze(0).detach().cpu()
-                )
-                da_states.append(decoded_assim)
-                z_background = forward_model.latent_forward(z_assimilated)
-            else:
-                decoded_background = (
-                    executor.decode_latent(z_background).squeeze(0).detach().cpu()
-                )
-                da_states.append(decoded_background)
-                z_background = forward_model.latent_forward(z_background)
-
-            noda_decoded = executor.decode_latent(noda_background).squeeze(0).detach().cpu()
-            noda_states.append(noda_decoded)
-            noda_background = forward_model.latent_forward(noda_background)
-
-        da_stack = torch.stack(da_states)
+        da_stack = torch.stack(da_states)      # (window_length, C, H, W)
         noda_stack = torch.stack(noda_states)
 
         if first_run_states is None:
             first_run_states = da_stack.clone()
+            first_run_original_states = noda_stack.clone()
 
         metrics = compute_metrics(da_stack, noda_stack, groundtruth, dataset)
         for key in run_metrics:
             run_metrics[key].append(metrics[key])
 
-        run_times.append(total_da_time)
-        run_iterations.append(total_iterations)
-        print(f"Run {run_idx + 1} assimilation time: {total_da_time:.2f}s")
+        print(f"Run {run_idx + 1} assimilation time: {elapsed:.2f}s")
 
     save_dir = "../../../../results/CAE_Koopman/ERA5/DA"
     os.makedirs(save_dir, exist_ok=True)
@@ -263,6 +262,13 @@ def run_multi_da_experiment(
             safe_denorm(first_run_states, dataset).numpy(),
         )
         print(f"Saved sample DA trajectory to {os.path.join(save_dir, prefixed('multi.npy'))}")
+    
+    if first_run_original_states is not None:
+        np.save(
+            os.path.join(save_dir, prefixed("multi_original.npy")),
+            safe_denorm(first_run_original_states, dataset).numpy(),
+        )
+        print(f"Saved sample NoDA trajectory to {os.path.join(save_dir, prefixed('multi_original.npy'))}")
 
     metrics_meanstd = {}
     for key in run_metrics:

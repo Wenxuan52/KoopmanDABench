@@ -14,14 +14,14 @@ source /scratch_root/wy524/miniconda3/etc/profile.d/conda.sh
 conda activate koopmanda
 
 # Cylinder / Dam / ERA5
-# DMD / CAE_DMD / CAE_Koopman / CAE_Linear / CAE_Weaklinear / CAE_MLP / discreteCGKN / DBF
-# cd src/models/discreteCGKN/ERA5
+# DMD / CAE_Koopman / CAE_Linear / CAE_Weaklinear / CAE_MLP / discreteCGKN / DBF
+cd src/models/CAE_Koopman/ERA5
 
-# python direct_DA.py
+python direct_DA.py
 
-cd src/assimilation/
+# cd src/assimilation/
 
-python era5_full_observation.py
+# python era5_intermittent_observation.py
 
 # era5_full_observation.py
 # era5_intermittent_observation.py
