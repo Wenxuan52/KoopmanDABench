@@ -41,6 +41,7 @@ class UnifiedDynamicSparseObservationHandler:
         min_obs_ratio: float = 0.05,
         seed: Optional[int] = 42,
         noise_std: float = 0.0,
+        fixed_valid_mask: bool = True,
     ):
         self.max_obs_ratio = max_obs_ratio
         self.min_obs_ratio = min_obs_ratio
@@ -49,6 +50,8 @@ class UnifiedDynamicSparseObservationHandler:
         self.fixed_positions: Optional[torch.Tensor] = None
         self.max_obs_count: int = 0
         self.time_masks: dict[int, dict[str, torch.Tensor | float | int]] = {}
+        self.fixed_valid_mask = fixed_valid_mask
+        self._shared_valid_indices: Optional[torch.Tensor] = None
 
         if seed is not None:
             torch.manual_seed(seed)
@@ -57,41 +60,42 @@ class UnifiedDynamicSparseObservationHandler:
     def generate_unified_observations(
         self, image_shape: Tuple[int, int, int], time_steps: Sequence[int]
     ) -> int:
-        """
-        Create fixed observation positions and per-time-step valid indices.
-        """
         if len(image_shape) != 3:
-            raise ValueError(
-                f"Expected 3D image shape (C, H, W), got {image_shape}"
-            )
+            raise ValueError(f"Expected 3D image shape (C, H, W), got {image_shape}")
 
         C, H, W = image_shape
         total_pixels = C * H * W
         self.max_obs_count = int(total_pixels * self.max_obs_ratio)
 
+        # 固定观测位置（大小 = max_obs_count）
         self.fixed_positions = torch.randperm(total_pixels)[: self.max_obs_count]
 
         actual_ratio = self.max_obs_count / total_pixels
-        print(
-            f"Fixed observation setup: {self.max_obs_count} observations ({actual_ratio:.3%} ratio)"
-        )
+        print(f"Fixed observation setup: {self.max_obs_count} observations ({actual_ratio:.3%} ratio)")
         print(f"Noise level: σ = {self.noise_std:.4f}")
 
-        for i, _ in enumerate(time_steps):
-            obs_ratio = np.random.uniform(self.min_obs_ratio, self.max_obs_ratio)
-            num_valid = int(total_pixels * obs_ratio)
-            num_valid = min(num_valid, self.max_obs_count)
+        # 固定有效观测索引（全部有效 = 固定数量）
+        if self.fixed_valid_mask:
+            self._shared_valid_indices = torch.arange(self.max_obs_count)
+            shared_num_valid = self.max_obs_count
+            shared_ratio = actual_ratio
 
-            valid_indices = torch.randperm(self.max_obs_count)[:num_valid]
-            self.time_masks[i] = {
-                "num_valid": num_valid,
+        self.time_masks = {}
+        for t in time_steps:
+            if self.fixed_valid_mask:
+                valid_indices = self._shared_valid_indices
+                num_valid = shared_num_valid
+                obs_ratio = shared_ratio
+            else:
+                obs_ratio = np.random.uniform(self.min_obs_ratio, self.max_obs_ratio)
+                num_valid = min(int(total_pixels * obs_ratio), self.max_obs_count)
+                valid_indices = torch.randperm(self.max_obs_count)[:num_valid]
+
+            self.time_masks[int(t)] = {
+                "num_valid": int(num_valid),
                 "valid_indices": valid_indices,
-                "obs_ratio": obs_ratio,
+                "obs_ratio": float(obs_ratio),
             }
-
-            print(
-                f"Time step {i}: {num_valid}/{self.max_obs_count} observations ({obs_ratio:.3%} ratio)"
-            )
 
         return self.max_obs_count
 
@@ -197,8 +201,10 @@ class MLPDAExecutor:
     ):
         """Configure a torchda CaseBuilder for one assimilation step."""
         self._obs_time_idx = observation_time_idx
-        observation_time_steps = observation_time_steps or [0]
-        gaps = gaps or [1]
+        if observation_time_steps is None:
+            observation_time_steps = [0]
+        if gaps is None:
+            gaps = [1]
 
         case_builder = (
             torchda.CaseBuilder()
