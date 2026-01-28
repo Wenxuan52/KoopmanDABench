@@ -41,14 +41,17 @@ def compute_metrics(
     noda_states: torch.Tensor,
     groundtruth: torch.Tensor,
     dataset: ERA5Dataset,
+    start_offset: int = 1,
 ) -> Dict[str, np.ndarray]:
     """Compute per-step, per-channel metrics for one assimilation run."""
     mse = []
     rrmse = []
     ssim_scores = []
 
-    for step in range(groundtruth.shape[0] - 1):
-        target = groundtruth[step + 1]  # assimilation starts from index 1
+    T = da_states.shape[0]
+    assert start_offset + T <= groundtruth.shape[0], "groundtruth length mismatch"
+    for step in range(T):
+        target = groundtruth[step + start_offset]  # assimilation starts from index 1
         da = safe_denorm(da_states[step], dataset)
         noda = safe_denorm(noda_states[step], dataset)
 
@@ -98,10 +101,13 @@ def run_multi_da_experiment(
     num_runs: int = 5,
     early_stop_config: Tuple[int, float] = (100, 1e-3),
     start_T: int = 0,
+    da_start_step: int = 1,
     model_name: str = "CAE_Koopman",
     save_prefix: str | None = None,
 ):
     """Run repeated DA experiments and collect mean/std statistics."""
+    assert 0 <= da_start_step <= window_length, "da_start_step must in [0, window_length]"
+
     set_seed(42)
     device = set_device()
     print(f"Using device: {device}")
@@ -132,11 +138,13 @@ def run_multi_da_experiment(
         max_path="../../../../data/ERA5/ERA5_data/max_val.npy",
     )
 
-    total_frames = window_length + 1
+    total_frames = window_length + da_start_step
     raw_data = dataset.data[start_T : start_T + total_frames, ...]
     groundtruth = torch.tensor(raw_data, dtype=torch.float32).permute(0, 3, 1, 2)
     normalized_groundtruth = dataset.normalize(groundtruth)
     print(f"Ground truth slice shape: {groundtruth.shape}")
+
+    print(f"Model will latent forward {da_start_step} step before DA")
 
     # Observations (fixed positions, fixed ratio) at specific steps
     obs_handler = UnifiedDynamicSparseObservationHandler(
@@ -144,13 +152,13 @@ def run_multi_da_experiment(
         min_obs_ratio=obs_ratio,
         seed=42,
         noise_std=obs_noise_std,
-        fixed_valid_mask=True,   # 你现在的设定
+        fixed_valid_mask=True,
     )
     sample_shape = normalized_groundtruth[1].shape
     obs_handler.generate_unified_observations(sample_shape, list(range(window_length)))
 
     obs_steps = sorted(observation_schedule)
-    assert all(0 <= t < window_length for t in obs_steps), "observation_schedule 越界"
+    assert all(0 <= t < window_length for t in obs_steps), "observation_schedule out of bound"
     gaps = [obs_steps[i + 1] - obs_steps[i] for i in range(len(obs_steps) - 1)]
     if len(obs_steps) == 1:
         gaps = None
@@ -180,15 +188,22 @@ def run_multi_da_experiment(
 
         # ===== 1) 背景（t=1） =====
         x0 = normalized_groundtruth[0].to(device).unsqueeze(0)
-        z1_background = forward_model.latent_forward(forward_model.K_S(x0))  # 对应 step=0 的预测（t=1）
-        background_state = z1_background.ravel()
+        z = forward_model.K_S(x0)  # z0
+        for _ in range(da_start_step):
+            z = forward_model.latent_forward(z)  # rollout da_start_step 步
+        z_start_background = z
+        background_state = z_start_background.ravel()
 
         # ===== 2) 生成本 run 的观测序列（只取 schedule 时刻）=====
         obs_list = []
 
+        assert max(obs_steps) < window_length, "observation_schedule out of bounds"
+        # 以及确保索引不超过 normalized_groundtruth
+        assert da_start_step + max(obs_steps) < normalized_groundtruth.shape[0], "Observation index out of bounds"
+
         for t in obs_steps:
             y_t = obs_handler.apply_unified_observation(
-                normalized_groundtruth[t + 1].to(device),  # 真值在 t+1
+                normalized_groundtruth[da_start_step + t].to(device),  # 真值在 t+1
                 t,                                         # mask idx（你生成的是 0..window_length-1）
                 add_noise=True,                             # 每个 run 不同噪声
             )
@@ -196,7 +211,7 @@ def run_multi_da_experiment(
         observations = torch.stack(obs_list).to(device)  # shape (K, m)
 
         # ===== 3) 整窗 4D-Var 同化（一次）=====
-        z1_assimilated, intermediates, elapsed = executor.assimilate_step(
+        z_assimilated, intermediates, elapsed = executor.assimilate_step(
             observations=observations,
             background_state=background_state,
             observation_time_idx=0,                 # 固定 mask 时无所谓；给 0 即可
@@ -214,10 +229,10 @@ def run_multi_da_experiment(
             run_iterations.append(0)
 
         # ===== 4) 用同化后的 z1 roll out 得到 window_length 帧 DA 轨迹 =====
-        if z1_assimilated.ndim == 1:
-            z = z1_assimilated.unsqueeze(0)
+        if z_assimilated.ndim == 1:
+            z = z_assimilated.unsqueeze(0)
         else:
-            z = z1_assimilated
+            z = z_assimilated
 
         da_states = []
         for step in range(window_length):
@@ -225,7 +240,7 @@ def run_multi_da_experiment(
             z = forward_model.latent_forward(z)
 
         # ===== 5) NoDA 基线：从背景 z1_background roll out =====
-        z = z1_background.clone()
+        z = z_start_background.clone()
         noda_states = []
         for step in range(window_length):
             noda_states.append(executor.decode_latent(z).squeeze(0).detach().cpu())
@@ -238,7 +253,7 @@ def run_multi_da_experiment(
             first_run_states = da_stack.clone()
             first_run_original_states = noda_stack.clone()
 
-        metrics = compute_metrics(da_stack, noda_stack, groundtruth, dataset)
+        metrics = compute_metrics(da_stack, noda_stack, groundtruth, dataset, start_offset=da_start_step)
         for key in run_metrics:
             run_metrics[key].append(metrics[key])
 
@@ -279,7 +294,7 @@ def run_multi_da_experiment(
     np.savez(
         os.path.join(save_dir, prefixed("multi_meanstd.npz")),
         **metrics_meanstd,
-        steps=np.arange(1, window_length + 1),
+        steps = np.arange(da_start_step, da_start_step + window_length),
         metrics=["MSE", "RRMSE", "SSIM"],
     )
     print(
