@@ -282,8 +282,10 @@ def run_multi_da_experiment(
     obs_all = observation_mask.sample(normalized_gt_device.unsqueeze(0))  # [1, T, obs_dim]
     assert obs_all.shape[1] >= window_length + 1, "Insufficient observation frames for window"
 
-    if obs_noise_std:
-        obs_all = obs_all + torch.randn_like(obs_all) * obs_noise_std
+    # if obs_noise_std:
+    #     obs_all = obs_all + torch.randn_like(obs_all) * obs_noise_std
+
+    obs_all_clean = obs_all.detach()
 
     if observation_schedule is None:
         observation_schedule = list(range(window_length))
@@ -292,6 +294,7 @@ def run_multi_da_experiment(
     run_metrics = {"mse": [], "rrmse": [], "ssim": []}
     run_times = []
     first_run_states = None
+    first_run_original_states = None
 
     cov_rho = init_cov * torch.eye(2, device=device).view(1, 1, 2, 2)
     mu_rho = torch.zeros(1, num_pairs, 2, device=device)
@@ -299,6 +302,10 @@ def run_multi_da_experiment(
     for run_idx in range(num_runs):
         print(f"\nStarting assimilation run {run_idx + 1}/{num_runs}")
         set_seed(42 + run_idx)
+
+        obs_all = obs_all_clean.clone()
+        if obs_noise_std and obs_noise_std > 0:
+            obs_all = obs_all + torch.randn_like(obs_all) * obs_noise_std
 
         # Prepare observation sequence for t=1..window_length
         obs_sequence = obs_all[:, 1 : window_length + 1, :].clone()
@@ -362,6 +369,7 @@ def run_multi_da_experiment(
 
         if first_run_states is None:
             first_run_states = da_stack.clone()
+            first_run_original_states = noda_stack.clone()
 
         metrics = compute_metrics(da_stack, noda_stack, groundtruth, dataset)
         for key in run_metrics:
@@ -387,6 +395,14 @@ def run_multi_da_experiment(
             safe_denorm(first_run_states, dataset).numpy(),
         )
         print(f"Saved DA trajectory to {save_dir / prefixed('multi.npy')}")
+    
+    if first_run_original_states is not None:
+        np.save(
+            save_dir / prefixed("multi_original.npy"),
+            safe_denorm(first_run_original_states, dataset).numpy(),
+        )
+        print(f"Saved NoDA trajectory to {save_dir / prefixed('multi_original.npy')}")
+
 
     metrics_meanstd = {}
     for key in run_metrics:

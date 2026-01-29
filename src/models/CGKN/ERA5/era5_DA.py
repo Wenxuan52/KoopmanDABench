@@ -496,19 +496,8 @@ def run_multi_da_experiment(
 
     u1_full = probe_sampler.sample(normalized_groundtruth.unsqueeze(0))
     assert u1_full.shape[1] == total_frames, "Probe sampling length mismatch"
-    u1_gt = u1_full[0]
-    u1_obs = torch.full_like(u1_gt, float("nan"))
-    for step in observation_steps:
-        obs = u1_gt[step].clone()
-        if obs_noise_std > 0:
-            obs = obs + torch.randn_like(obs) * obs_noise_std
-        u1_obs[step] = obs
-    if 0 in observation_steps:
-        u1_init = u1_obs[0].clone()
-    else:
-        u1_init = u1_gt[0].clone()
+    u1_gt = u1_full[0]  # [T, dim_u1]
 
-    obs_series = u1_obs.unsqueeze(-1).to(device)
     update_mask = update_mask.to(device)
 
     mu0 = torch.zeros(latent_dim, 1, device=device)
@@ -516,11 +505,29 @@ def run_multi_da_experiment(
 
     run_metrics = {"mse": [], "rrmse": [], "ssim": []}
     first_run_states = None
+    first_run_original_states = None
     run_times: List[float] = []
 
     for run_idx in range(num_runs):
         print(f"\nStarting assimilation run {run_idx + 1}/{num_runs}")
         set_seed(42 + run_idx)
+
+        # --- (NEW) build noisy observations for this run ---
+        u1_obs = torch.full_like(u1_gt, float("nan"))
+
+        for step in observation_steps:
+            obs = u1_gt[step].clone()
+            if obs_noise_std > 0:
+                obs = obs + torch.randn_like(obs) * obs_noise_std
+            u1_obs[step] = obs
+
+        # initial observed u1 at t=0 if available; otherwise use truth
+        if 0 in observation_steps:
+            u1_init = u1_obs[0].clone()
+        else:
+            u1_init = u1_gt[0].clone()
+
+        obs_series = u1_obs.unsqueeze(-1).to(device)   # [T, dim_u1, 1]
 
         run_start = perf_counter()
         obs_var = observation_variance if observation_variance is not None else obs_noise_std**2
@@ -550,6 +557,7 @@ def run_multi_da_experiment(
 
         if first_run_states is None:
             first_run_states = da_stack.clone()
+            first_run_original_states = noda_fields.clone()
 
         metrics = compute_metrics(da_stack, noda_fields, groundtruth, dataset)
         for key in run_metrics:
@@ -569,6 +577,13 @@ def run_multi_da_experiment(
     if first_run_states is not None:
         np.save(save_dir / prefixed("multi.npy"), safe_denorm(first_run_states, dataset).numpy())
         print(f"Saved sample DA trajectory to {save_dir / prefixed('multi.npy')}")
+    
+    if first_run_original_states is not None:
+        np.save(
+            save_dir / prefixed("multi_original.npy"),
+            safe_denorm(first_run_original_states, dataset).numpy(),
+        )
+        print(f"Saved sample NoDA trajectory to {save_dir / prefixed('multi_original.npy')}")
 
     metrics_meanstd = {}
     for key in run_metrics:

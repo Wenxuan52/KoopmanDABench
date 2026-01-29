@@ -106,7 +106,7 @@ def summarize_metrics(metrics: Sequence[Dict[str, float]]) -> Dict[str, float]:
 def run_all_models():
     """Run data assimilation for all supported models with shared settings."""
 
-    window_length = 20
+    window_length = 10
     observation_schedule = list(range(window_length))
     experiment_config = {
         "obs_ratio": 0.15,
