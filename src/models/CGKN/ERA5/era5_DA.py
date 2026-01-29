@@ -304,14 +304,15 @@ def CGFilter(
     R0: torch.Tensor,
     dt: float,
     kalman_reg: float = 1e-6,
-    kalman_cov_clip: float | None = 1.0,
-    kalman_gain_clip: float | None = 50.0,
-    kalman_gain_scale: float = 1e-3,
-    kalman_innovation_clip: float | None = 1.0,
-    kalman_drift_clip: float | None = 0.1,
-    kalman_state_clip: float | None = 10.0,
-    use_diag_cov: bool = True,
+    kalman_cov_clip: float | None = None,
+    kalman_gain_clip: float | None = None,
+    kalman_gain_scale: float = 1.0,
+    kalman_innovation_clip: float | None = None,
+    kalman_drift_clip: float | None = None,
+    kalman_state_clip: float | None = None,
+    use_diag_cov: bool = False,
     observation_variance: float | None = None,
+    debug: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     device = obs_series.device
     T, dim_u1, _ = obs_series.shape
@@ -325,60 +326,109 @@ def CGFilter(
     obs_var = observation_variance if observation_variance is not None else 0.0
     s1_cov = s1 @ s1.T + eps * eye_u1 + obs_var * eye_u1
     s2_cov = s2 @ s2.T + eps * eye_z
+    S_inv = torch.linalg.inv(s1_cov)
 
     mu_prev = mu0.clone()
     R_prev = R0.clone()
-    mu_post = []
-    R_post = []
+    mu_post = [mu_prev.unsqueeze(0)]
+    R_post = [R_prev.unsqueeze(0)]
     u1_forcing = []
 
     assert u1_init.shape == (dim_u1,), f"u1_init shape {u1_init.shape} != ({dim_u1},)"
     u1_curr = u1_init.to(device)
 
-    for n in range(T):
-        f1, g1, f2, g2 = cgn(u1_curr.unsqueeze(0))
+    u1_forcing.append(u1_curr.unsqueeze(0))
+
+    for n in range(1, T):
+        u1_prev = u1_curr
+        obs_prev = None
+        obs_curr = None
+
+        if update_mask[n - 1]:
+            obs_prev = obs_series[n - 1, :, 0]
+            if torch.isnan(obs_prev).any():
+                obs_prev = None
+
+        if update_mask[n]:
+            obs_curr = obs_series[n, :, 0]
+            if torch.isnan(obs_curr).any():
+                obs_curr = None
+
+        if obs_curr is not None:
+            u1_curr = obs_curr
+
+        f1, g1, f2, g2 = cgn(u1_prev.unsqueeze(0))
         f1 = f1.squeeze(0)
         g1 = g1.squeeze(0)
         f2 = f2.squeeze(0)
         g2 = g2.squeeze(0)
 
-        if not update_mask[n]:
-            obs = None
-        else:
-            obs = obs_series[n, :, 0]
-            if torch.isnan(obs).any():
-                raise ValueError(f"Observation missing at step {n} where update_mask is True")
+        s2_cov = stabilise_covariance(
+            s2_cov,
+            min_var=None,
+            max_var=None,
+            cov_clip=kalman_cov_clip,
+            use_diag=use_diag_cov,
+        )
+        # ENSO CGFilter: deterministic drift term (f2 + g2 @ mu) * dt
+        drift = f2 + g2 @ mu_prev
+        mu_pred = mu_prev + drift * dt
+        # ENSO CGFilter: covariance drift (g2@R + R@g2.T + s2@s2.T) * dt
+        R_pred = R_prev + (g2 @ R_prev + R_prev @ g2.T + s2_cov) * dt
+        R_pred = stabilise_covariance(
+            R_pred,
+            min_var=None,
+            max_var=None,
+            cov_clip=kalman_cov_clip,
+            use_diag=use_diag_cov,
+        )
 
-        s2_cov = stabilise_covariance(s2_cov, use_diag=use_diag_cov)
-        A = eye_z + dt * g2
-        q = dt * (f2 + g2 @ mu_prev) + 0.5 * (dt**2) * (g2 @ f2)
-        mu_pred = A @ mu_prev + q
-        R_pred = A @ R_prev @ A.T + dt * (g2 @ R_prev @ g2.T) + s2_cov
-        R_pred = stabilise_covariance(R_pred, use_diag=use_diag_cov)
-
-        if obs is None:
+        if obs_prev is None or obs_curr is None:
             mu_new = mu_pred
             R_new = R_pred
         else:
-            H = dt * g1
-            innovation = obs.unsqueeze(-1) - dt * (f1 + g1 @ mu_pred)
+            # ENSO CGFilter: innovation uses Δu1 = u1[n] - u1[n-1]
+            du1 = obs_curr.unsqueeze(-1) - obs_prev.unsqueeze(-1)
+            innovation = du1 - (f1 + g1 @ mu_prev) * dt
             if kalman_innovation_clip is not None:
                 innovation = innovation.clamp(min=-kalman_innovation_clip, max=kalman_innovation_clip)
-            S = H @ R_pred @ H.T + s1_cov
-            S = stabilise_covariance(S, use_diag=use_diag_cov)
-            S_inv = torch.linalg.pinv(S)
-            K = R_pred @ H.T @ S_inv
+            if not torch.isfinite(innovation).all():
+                raise RuntimeError(_tensor_summary("innovation", innovation))
+            # ENSO CGFilter: Kalman gain K = R @ g1.T @ inv(S)
+            K = (R_prev @ g1.T) @ S_inv
             if kalman_gain_scale is not None:
                 K = K * kalman_gain_scale
             if kalman_gain_clip is not None:
                 K = K.clamp(min=-kalman_gain_clip, max=kalman_gain_clip)
+            # ENSO CGFilter: mean update with innovation term
             mu_new = mu_pred + K @ innovation
             if kalman_drift_clip is not None:
                 mu_new = mu_new.clamp(min=-kalman_drift_clip, max=kalman_drift_clip)
-            R_new = (eye_z - K @ H) @ R_pred @ (eye_z - K @ H).T + K @ s1_cov @ K.T
-            R_new = stabilise_covariance(R_new, use_diag=use_diag_cov)
+            # ENSO CGFilter: covariance update with observation term
+            R_new = R_prev + (
+                g2 @ R_prev
+                + R_prev @ g2.T
+                + s2_cov
+                - R_prev @ g1.T @ S_inv @ g1 @ R_prev
+            ) * dt
+            R_new = stabilise_covariance(
+                R_new,
+                min_var=None,
+                max_var=None,
+                cov_clip=kalman_cov_clip,
+                use_diag=use_diag_cov,
+            )
             if kalman_state_clip is not None:
                 mu_new = mu_new.clamp(min=-kalman_state_clip, max=kalman_state_clip)
+            if debug:
+                diag = torch.diag(R_new)
+                print(
+                    "[CGFilter] step "
+                    f"{n} | innov_norm={torch.norm(innovation).item():.3e} | "
+                    f"K_norm={torch.norm(K).item():.3e} | "
+                    f"R_diag_min={diag.min().item():.3e} | "
+                    f"R_diag_max={diag.max().item():.3e}"
+                )
         mu_prev, R_prev = mu_new, R_new
 
         if not torch.isfinite(mu_new).all():
@@ -388,13 +438,6 @@ def CGFilter(
         mu_post.append(mu_new.unsqueeze(0))
         R_post.append(R_new.unsqueeze(0))
         u1_forcing.append(u1_curr.unsqueeze(0))
-
-        if n < T - 1:
-            v_curr = mu_new.squeeze(-1)
-            u1_dot = f1 + g1 @ v_curr.unsqueeze(-1)
-            v_dot = f2 + g2 @ v_curr.unsqueeze(-1)
-            u1_next = u1_curr + dt * u1_dot.squeeze(-1)
-            u1_curr = u1_next.detach()
 
     return torch.cat(mu_post, dim=0), torch.cat(R_post, dim=0), torch.cat(u1_forcing, dim=0)
 
