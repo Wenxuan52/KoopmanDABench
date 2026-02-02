@@ -289,7 +289,7 @@ def compute_metrics(
     }
 
 
-def run_multi_da_experiment(
+def run_multi_continuous_da_experiment(
     obs_ratio: float = 0.15,
     obs_noise_std: float = 0.05,
     observation_schedule: list = [0, 10, 20],
@@ -545,4 +545,4 @@ def run_multi_da_experiment(
 
 
 if __name__ == "__main__":
-    run_multi_da_experiment()
+    run_multi_continuous_da_experiment()
