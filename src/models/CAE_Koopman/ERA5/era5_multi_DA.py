@@ -155,6 +155,14 @@ def build_obs_stack(
     return obs_stack, observation_time_steps, gaps
 
 
+def build_event_R(
+    obs_handler: UnifiedDynamicSparseObservationHandler,
+    observation_variance: float | None,
+) -> torch.Tensor:
+    """Return per-time-step observation covariance (torchda applies it per time index)."""
+    return obs_handler.create_block_R_matrix(base_variance=observation_variance)
+
+
 def safe_denorm(x: torch.Tensor, dataset: ERA5Dataset) -> torch.Tensor:
     """Denormalize ERA5 tensors on CPU."""
     if isinstance(x, torch.Tensor):
@@ -340,13 +348,10 @@ def run_multi_da_experiment(
                     raise RuntimeError(
                         f"Observation stack length mismatch at step {step}."
                     )
-                base_R = obs_handler.create_block_R_matrix(
-                    base_variance=observation_variance
+                R = build_event_R(
+                    obs_handler=obs_handler,
+                    observation_variance=observation_variance,
                 ).to(device)
-                if len(obs_offsets) == 1:
-                    R = base_R
-                else:
-                    R = torch.block_diag(*[base_R for _ in range(len(obs_offsets))])
                 background_state = z_background.ravel()
 
                 z_assimilated, intermediates, elapsed = executor.assimilate_step(
