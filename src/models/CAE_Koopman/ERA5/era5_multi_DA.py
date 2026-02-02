@@ -4,11 +4,17 @@ Multi-run data assimilation experiments for CAE_Koopman on ERA5.
 
 import os
 import sys
-from typing import Dict, Tuple
+from dataclasses import dataclass
+from typing import Dict, List, Tuple
 
 import numpy as np
 import torch
 from skimage.metrics import structural_similarity as ssim
+
+try:
+    import yaml
+except ImportError:  # pragma: no cover - optional dependency
+    yaml = None
 
 # Add src directory to path
 current_directory = os.getcwd()
@@ -24,6 +30,129 @@ from src.models.CAE_Koopman.dabase import (
     set_seed,
 )
 from src.utils.Dataset import ERA5Dataset
+
+
+@dataclass(frozen=True)
+class AssimilationEvent:
+    at: int
+    win: int
+    obs_offsets: List[int]
+
+
+def _repo_root() -> str:
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+
+
+def _validate_obs_offsets(obs_offsets: List[int], win: int, at: int) -> None:
+    for offset in obs_offsets:
+        if not isinstance(offset, int):
+            raise ValueError(
+                f"Invalid obs_offsets for event at {at}: all offsets must be int."
+            )
+        if offset < 0 or offset >= win:
+            raise ValueError(
+                f"Invalid obs_offsets for event at {at}: offset {offset} not in [0, {win - 1}]."
+            )
+
+
+def build_event_map_default(
+    observation_schedule: List[int],
+    da_window: int,
+    window_length: int,
+) -> Dict[int, AssimilationEvent]:
+    event_map: Dict[int, AssimilationEvent] = {}
+    for step in observation_schedule:
+        if not isinstance(step, int):
+            print(f"Warning: observation schedule entry {step} is not int, skipping.")
+            continue
+        if step < 0 or step >= window_length:
+            print(
+                f"Warning: observation step {step} outside [0, {window_length - 1}], skipping."
+            )
+            continue
+        if step + da_window - 1 > window_length - 1:
+            print(
+                f"Warning: observation step {step} with window {da_window} "
+                f"exceeds window_length {window_length}, skipping."
+            )
+            continue
+        obs_offsets = list(range(da_window))
+        event_map[step] = AssimilationEvent(at=step, win=da_window, obs_offsets=obs_offsets)
+    return event_map
+
+
+def load_event_map_from_yaml(config_path: str) -> Tuple[int, Dict[int, AssimilationEvent]]:
+    if yaml is None:
+        raise ImportError("please pip install pyyaml")
+    with open(config_path, "r", encoding="utf-8") as handle:
+        config = yaml.safe_load(handle) or {}
+
+    if "online_nsteps" not in config:
+        raise ValueError("Missing required field 'online_nsteps' in YAML config.")
+    if "events" not in config:
+        raise ValueError("Missing required field 'events' in YAML config.")
+
+    online_nsteps = config["online_nsteps"]
+    if not isinstance(online_nsteps, int) or online_nsteps < 1:
+        raise ValueError("'online_nsteps' must be a positive integer.")
+
+    events = config["events"]
+    if not isinstance(events, list):
+        raise ValueError("'events' must be a list.")
+
+    event_map: Dict[int, AssimilationEvent] = {}
+    for event in events:
+        if not isinstance(event, dict):
+            raise ValueError("Each event entry must be a mapping with keys 'at', 'win', 'obs_offsets'.")
+        if "at" not in event or "win" not in event or "obs_offsets" not in event:
+            raise ValueError("Each event must include 'at', 'win', and 'obs_offsets'.")
+
+        at = event["at"]
+        win = event["win"]
+        obs_offsets = event["obs_offsets"]
+
+        if not isinstance(at, int):
+            raise ValueError(f"Event 'at' must be int, got {type(at).__name__}.")
+        if at < 0 or at > online_nsteps - 1:
+            raise ValueError(
+                f"Event 'at'={at} out of bounds [0, {online_nsteps - 1}]."
+            )
+        if at in event_map:
+            raise ValueError(f"Duplicate event 'at' value: {at}.")
+
+        if not isinstance(win, int) or win < 1:
+            raise ValueError(f"Event 'win' must be int >= 1 at {at}.")
+        if at + win - 1 > online_nsteps - 1:
+            raise ValueError(
+                f"Event at {at} with win {win} exceeds online_nsteps {online_nsteps}."
+            )
+
+        if not isinstance(obs_offsets, list):
+            raise ValueError(f"'obs_offsets' must be a list at event {at}.")
+        _validate_obs_offsets(obs_offsets, win, at)
+        if obs_offsets and max(obs_offsets) != win - 1:
+            print(
+                f"Warning: event at {at} has max obs_offset {max(obs_offsets)} "
+                f"but win is {win}."
+            )
+
+        event_map[at] = AssimilationEvent(at=at, win=win, obs_offsets=obs_offsets)
+
+    return online_nsteps, event_map
+
+
+def build_obs_stack(
+    sparse_observations: torch.Tensor,
+    step: int,
+    obs_offsets: List[int],
+) -> Tuple[torch.Tensor, List[int], List[int]]:
+    obs_stack = torch.stack([sparse_observations[step + off] for off in obs_offsets])
+    observation_time_steps = list(obs_offsets)
+    gaps = [
+        observation_time_steps[i + 1] - observation_time_steps[i]
+        for i in range(len(observation_time_steps) - 1)
+    ]
+    return obs_stack, observation_time_steps, gaps
 
 
 def safe_denorm(x: torch.Tensor, dataset: ERA5Dataset) -> torch.Tensor:
@@ -94,6 +223,8 @@ def run_multi_da_experiment(
     obs_noise_std: float = 0.05,
     observation_schedule: list = [0, 10, 20, 30, 40],
     observation_variance: float | None = None,
+    mode: str = "default",
+    da_window: int = 4,
     window_length: int = 50,
     num_runs: int = 5,
     early_stop_config: Tuple[int, float] = (100, 1e-3),
@@ -105,6 +236,22 @@ def run_multi_da_experiment(
     set_seed(42)
     device = set_device()
     print(f"Using device: {device}")
+
+    if mode not in {"default", "custom"}:
+        raise ValueError("mode must be 'default' or 'custom'.")
+
+    if mode == "custom":
+        config_path = os.path.join(_repo_root(), "configs", "DA", "demo_config.yaml")
+        window_length, event_map = load_event_map_from_yaml(config_path)
+        print(f"Loaded custom DA config from {config_path}")
+    else:
+        if da_window < 1:
+            raise ValueError("da_window must be >= 1 for default mode.")
+        event_map = build_event_map_default(
+            observation_schedule=observation_schedule,
+            da_window=da_window,
+            window_length=window_length,
+        )
 
     # Load forward model
     forward_model = ERA5_C_FORWARD().to(device)
@@ -157,8 +304,6 @@ def run_multi_da_experiment(
 
     latent_dim = forward_model.C_forward.shape[0]
     B = torch.eye(latent_dim, device=device)
-    R = obs_handler.create_block_R_matrix(base_variance=observation_variance).to(device)
-
     executor = KoopmanDAExecutor(
         forward_model=forward_model,
         obs_handler=obs_handler,
@@ -185,19 +330,31 @@ def run_multi_da_experiment(
         noda_background = z_background.clone()
 
         for step in range(window_length):
-            if step in observation_schedule:
-                obs_vector = sparse_observations[step]
-                obs_stack = torch.stack(
-                    [obs_vector, obs_vector]
-                )  # duplicated to satisfy 4D-Var
+            if step in event_map:
+                event = event_map[step]
+                obs_offsets = event.obs_offsets
+                obs_stack, observation_time_steps, gaps = build_obs_stack(
+                    sparse_observations, step, obs_offsets
+                )
+                if obs_stack.shape[0] != len(obs_offsets):
+                    raise RuntimeError(
+                        f"Observation stack length mismatch at step {step}."
+                    )
+                base_R = obs_handler.create_block_R_matrix(
+                    base_variance=observation_variance
+                ).to(device)
+                if len(obs_offsets) == 1:
+                    R = base_R
+                else:
+                    R = torch.block_diag(*[base_R for _ in range(len(obs_offsets))])
                 background_state = z_background.ravel()
 
                 z_assimilated, intermediates, elapsed = executor.assimilate_step(
                     observations=obs_stack,
                     background_state=background_state,
                     observation_time_idx=step,
-                    observation_time_steps=[0, 1],
-                    gaps=[1],
+                    observation_time_steps=observation_time_steps,
+                    gaps=gaps,
                     B=B,
                     R=R,
                 )
