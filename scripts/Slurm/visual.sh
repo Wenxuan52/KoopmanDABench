@@ -22,7 +22,6 @@ mkdir -p "${CACHE_BASE}/mpl" "${CACHE_BASE}/cartopy"
 export MPLCONFIGDIR="${CACHE_BASE}/mpl"
 export CARTOPY_DATA_DIR="${CACHE_BASE}/cartopy"
 
-# 可选：某些库也会写 XDG cache/config，稳一点可以加
 export XDG_CACHE_HOME="${CACHE_BASE}/xdg_cache"
 export XDG_CONFIG_HOME="${CACHE_BASE}/xdg_config"
 mkdir -p "${XDG_CACHE_HOME}" "${XDG_CONFIG_HOME}"

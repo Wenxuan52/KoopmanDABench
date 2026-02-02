@@ -81,11 +81,44 @@ def build_event_map_default(
     return event_map
 
 
-def load_event_map_from_yaml(config_path: str) -> Tuple[int, Dict[int, AssimilationEvent]]:
+def load_event_map_from_yaml(
+    config_path: str,
+    *,
+    require_sorted_offsets: bool = True,
+    require_unique_offsets: bool = True,
+    require_nonempty_offsets: bool = True,
+    require_zero_offset: bool = True,
+    strict_win_tail: bool = False,
+) -> Tuple[int, Dict[int, AssimilationEvent]]:
+    """
+    Load custom DA schedule from YAML and return:
+      - online_nsteps (int): window_length for online assimilation loop
+      - event_map (Dict[int, AssimilationEvent]): {at_step: event}
+
+    YAML format:
+      online_nsteps: <int>
+      events:
+        - at: <int>
+          win: <int>
+          obs_offsets: [<int>, ...]
+
+    Robustness features:
+      - Clear validation errors with event index and at
+      - obs_offsets: non-empty, sorted (optional), unique (optional), include 0 (optional)
+      - win and bounds checks
+      - optional strict check that max(obs_offsets) == win - 1
+    """
     if yaml is None:
         raise ImportError("please pip install pyyaml")
+
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Custom DA config not found: {config_path}")
+
     with open(config_path, "r", encoding="utf-8") as handle:
         config = yaml.safe_load(handle) or {}
+
+    if not isinstance(config, dict):
+        raise ValueError("YAML config root must be a mapping/dict.")
 
     if "online_nsteps" not in config:
         raise ValueError("Missing required field 'online_nsteps' in YAML config.")
@@ -98,42 +131,69 @@ def load_event_map_from_yaml(config_path: str) -> Tuple[int, Dict[int, Assimilat
 
     events = config["events"]
     if not isinstance(events, list):
-        raise ValueError("'events' must be a list.")
+        raise ValueError("'events' must be a list of event mappings.")
 
     event_map: Dict[int, AssimilationEvent] = {}
-    for event in events:
+
+    for idx, event in enumerate(events):
         if not isinstance(event, dict):
-            raise ValueError("Each event entry must be a mapping with keys 'at', 'win', 'obs_offsets'.")
-        if "at" not in event or "win" not in event or "obs_offsets" not in event:
-            raise ValueError("Each event must include 'at', 'win', and 'obs_offsets'.")
+            raise ValueError(
+                f"Event #{idx} must be a mapping with keys 'at', 'win', 'obs_offsets'."
+            )
+
+        missing = [k for k in ("at", "win", "obs_offsets") if k not in event]
+        if missing:
+            raise ValueError(
+                f"Event #{idx} is missing required fields: {missing}."
+            )
 
         at = event["at"]
         win = event["win"]
         obs_offsets = event["obs_offsets"]
 
+        # --- validate 'at'
         if not isinstance(at, int):
-            raise ValueError(f"Event 'at' must be int, got {type(at).__name__}.")
+            raise ValueError(
+                f"Event #{idx} 'at' must be int, got {type(at).__name__}."
+            )
         if at < 0 or at > online_nsteps - 1:
             raise ValueError(
-                f"Event 'at'={at} out of bounds [0, {online_nsteps - 1}]."
+                f"Event #{idx} at={at} out of bounds [0, {online_nsteps - 1}]."
             )
         if at in event_map:
             raise ValueError(f"Duplicate event 'at' value: {at}.")
 
+        # --- validate 'win'
         if not isinstance(win, int) or win < 1:
-            raise ValueError(f"Event 'win' must be int >= 1 at {at}.")
+            raise ValueError(f"Event at {at} 'win' must be int >= 1, got {win}.")
         if at + win - 1 > online_nsteps - 1:
             raise ValueError(
-                f"Event at {at} with win {win} exceeds online_nsteps {online_nsteps}."
+                f"Event at {at} with win={win} exceeds online_nsteps={online_nsteps} "
+                f"(needs at+win-1 <= {online_nsteps - 1})."
             )
 
+        # --- validate 'obs_offsets'
         if not isinstance(obs_offsets, list):
-            raise ValueError(f"'obs_offsets' must be a list at event {at}.")
+            raise ValueError(f"Event at {at}: 'obs_offsets' must be a list.")
+
+        if require_nonempty_offsets and len(obs_offsets) == 0:
+            raise ValueError(f"Event at {at}: 'obs_offsets' cannot be empty.")
+
+        # element-wise validation (int and range)
         _validate_obs_offsets(obs_offsets, win, at)
-        if obs_offsets and max(obs_offsets) != win - 1:
-            print(
-                f"Warning: event at {at} has max obs_offset {max(obs_offsets)} "
-                f"but win is {win}."
+
+        # enforce sorted/unique if desired
+        if require_unique_offsets and len(set(obs_offsets)) != len(obs_offsets):
+            raise ValueError(f"Event at {at}: 'obs_offsets' contains duplicates: {obs_offsets}")
+
+        if require_sorted_offsets and obs_offsets != sorted(obs_offsets):
+            raise ValueError(
+                f"Event at {at}: 'obs_offsets' must be sorted ascending. Got {obs_offsets}."
+            )
+
+        if require_zero_offset and 0 not in obs_offsets:
+            raise ValueError(
+                f"Event at {at}: 'obs_offsets' must include 0 (window start). Got {obs_offsets}."
             )
 
         event_map[at] = AssimilationEvent(at=at, win=win, obs_offsets=obs_offsets)
@@ -178,14 +238,17 @@ def compute_metrics(
     noda_states: torch.Tensor,
     groundtruth: torch.Tensor,
     dataset: ERA5Dataset,
+    start_offset: int = 1,
 ) -> Dict[str, np.ndarray]:
     """Compute per-step, per-channel metrics for one assimilation run."""
     mse = []
     rrmse = []
     ssim_scores = []
 
-    for step in range(groundtruth.shape[0] - 1):
-        target = groundtruth[step + 1]  # assimilation starts from index 1
+    T = da_states.shape[0]
+    assert start_offset + T <= groundtruth.shape[0], "groundtruth length mismatch"
+    for step in range(T):
+        target = groundtruth[step + start_offset]  # assimilation starts from index 1
         da = safe_denorm(da_states[step], dataset)
         noda = safe_denorm(noda_states[step], dataset)
 
@@ -229,18 +292,21 @@ def compute_metrics(
 def run_multi_da_experiment(
     obs_ratio: float = 0.15,
     obs_noise_std: float = 0.05,
-    observation_schedule: list = [0, 10, 20, 30, 40],
+    observation_schedule: list = [0, 10, 20],
     observation_variance: float | None = None,
     mode: str = "default",
     da_window: int = 4,
-    window_length: int = 50,
+    window_length: int = 30,
     num_runs: int = 5,
     early_stop_config: Tuple[int, float] = (100, 1e-3),
     start_T: int = 0,
+    da_start_step: int = 1,
     model_name: str = "CAE_Koopman",
     save_prefix: str | None = None,
+    config_path: str = "configs/DA/demo_config.yaml",
 ):
     """Run repeated DA experiments and collect mean/std statistics."""
+
     set_seed(42)
     device = set_device()
     print(f"Using device: {device}")
@@ -249,12 +315,12 @@ def run_multi_da_experiment(
         raise ValueError("mode must be 'default' or 'custom'.")
 
     if mode == "custom":
-        config_path = os.path.join(_repo_root(), "configs", "DA", "demo_config.yaml")
-        window_length, event_map = load_event_map_from_yaml(config_path)
-        print(f"Loaded custom DA config from {config_path}")
+        real_config_path = os.path.join(_repo_root(), config_path)
+        window_length, event_map = load_event_map_from_yaml(real_config_path)
+        print(f"Loaded custom DA config from {real_config_path}")
     else:
-        if da_window < 1:
-            raise ValueError("da_window must be >= 1 for default mode.")
+        if da_window < 2:
+            raise ValueError("da_window must be >= 2 for default mode.")
         event_map = build_event_map_default(
             observation_schedule=observation_schedule,
             da_window=da_window,
@@ -287,11 +353,13 @@ def run_multi_da_experiment(
         max_path="../../../../data/ERA5/ERA5_data/max_val.npy",
     )
 
-    total_frames = window_length + 1
+    total_frames = window_length + da_start_step
     raw_data = dataset.data[start_T : start_T + total_frames, ...]
     groundtruth = torch.tensor(raw_data, dtype=torch.float32).permute(0, 3, 1, 2)
     normalized_groundtruth = dataset.normalize(groundtruth)
     print(f"Ground truth slice shape: {groundtruth.shape}")
+
+    print(f"Model will latent forward {da_start_step} step before DA")
 
     # Observations (fixed positions, fixed ratio) at specific steps
     obs_handler = UnifiedDynamicSparseObservationHandler(
@@ -299,16 +367,6 @@ def run_multi_da_experiment(
     )
     sample_shape = normalized_groundtruth[1].shape
     obs_handler.generate_unified_observations(sample_shape, list(range(window_length)))
-
-    sparse_observations = []
-    for idx in range(window_length):
-        sparse = obs_handler.apply_unified_observation(
-            normalized_groundtruth[idx + 1], idx, add_noise=True
-        )
-        sparse_observations.append(sparse)
-    sparse_observations = torch.stack(sparse_observations).to(device)
-
-    # observation_schedule = [0, 10, 20, 30, 40]
 
     latent_dim = forward_model.C_forward.shape[0]
     B = torch.eye(latent_dim, device=device)
@@ -328,13 +386,25 @@ def run_multi_da_experiment(
         print(f"\nStarting assimilation run {run_idx + 1}/{num_runs}")
         set_seed(42 + run_idx)
 
+        sparse_observations = []
+        for idx in range(window_length):
+            sparse = obs_handler.apply_unified_observation(
+                normalized_groundtruth[da_start_step + idx],
+                idx,
+                add_noise=True,
+            )
+            sparse_observations.append(sparse)
+        sparse_observations = torch.stack(sparse_observations).to(device)
+
         da_states = []
         noda_states = []
         total_da_time = 0.0
         total_iterations = 0
 
-        current_state = normalized_groundtruth[0].to(device).unsqueeze(0)
-        z_background = forward_model.latent_forward(forward_model.K_S(current_state))
+        x0 = normalized_groundtruth[0].to(device).unsqueeze(0)
+        z_background = forward_model.K_S(x0)  # z0
+        for _ in range(da_start_step):
+            z_background = forward_model.latent_forward(z_background)
         noda_background = z_background.clone()
 
         for step in range(window_length):
@@ -399,7 +469,7 @@ def run_multi_da_experiment(
         if first_run_states is None:
             first_run_states = da_stack.clone()
 
-        metrics = compute_metrics(da_stack, noda_stack, groundtruth, dataset)
+        metrics = compute_metrics(da_stack, noda_stack, groundtruth, dataset, start_offset=da_start_step)
         for key in run_metrics:
             run_metrics[key].append(metrics[key])
 
@@ -435,7 +505,7 @@ def run_multi_da_experiment(
     np.savez(
         os.path.join(save_dir, prefixed("multi_meanstd.npz")),
         **metrics_meanstd,
-        steps=np.arange(1, window_length + 1),
+        steps=np.arange(da_start_step, da_start_step + window_length),
         metrics=["MSE", "RRMSE", "SSIM"],
     )
     print(

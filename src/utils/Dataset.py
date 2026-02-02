@@ -281,6 +281,76 @@ class ERA5Dataset(Dataset):
         return denormalize
 
 
+class ERA5HighDataset(Dataset):
+    def __init__(self,
+                 data_path: str,
+                 seq_length: int = 12,
+                 min_path: str = None,
+                 max_path: str = None,
+                 dataset_key: str = "data"):
+        self.data_path = data_path
+        self.seq_length = seq_length
+
+        with h5py.File(self.data_path, 'r') as f:
+            self.data = f[dataset_key][:]  # shape: [N, 240, 121] or [N, 240, 121, C]
+        print(f"Loaded ERA5High data with shape: {self.data.shape}")
+
+        # 统一成 [N, H, W, C]
+        if self.data.ndim == 3:
+            # [N, H, W] -> [N, H, W, 1]
+            self.data = self.data[..., None]
+        elif self.data.ndim != 4:
+            raise ValueError(f"Unsupported data shape: {self.data.shape}. "
+                             f"Expected [N,H,W] or [N,H,W,C].")
+
+        self.n_frames, self.H, self.W, self.C = self.data.shape
+
+        if min_path is not None and max_path is not None:
+            self.min = torch.from_numpy(np.load(min_path).astype(np.float32))  # shape: [C]
+            self.max = torch.from_numpy(np.load(max_path).astype(np.float32))
+        else:
+            raise ValueError("min_path and max_path must be provided")
+
+        # （可选但强烈建议）检查 min/max 的维度对不对
+        if self.min.numel() != self.C or self.max.numel() != self.C:
+            raise ValueError(f"min/max should have shape [C]={self.C}, "
+                             f"but got min:{tuple(self.min.shape)} max:{tuple(self.max.shape)}")
+
+        self.num_per_sample = self.n_frames - seq_length
+        self.create_data_set(self.data)
+
+    def create_data_set(self, data):
+        self.pool = []
+        for i in range(self.num_per_sample):
+            self.pool.append(data[i:i + self.seq_length + 1])
+        self.total_sample = len(self.pool)
+        print('Dataset total samples:', len(self.pool))
+
+    def __len__(self):
+        return len(self.pool)
+
+    def __getitem__(self, idx):
+        data = self.pool[idx]  # [T+1, H, W, C]
+        data = torch.from_numpy(data).permute(0, 3, 1, 2).float()  # -> [T+1, C, H, W]
+
+        pre_seq = data[:self.seq_length]
+        post_seq = data[1:self.seq_length + 1]
+
+        return self.normalize(pre_seq), self.normalize(post_seq)
+
+    def normalize(self, x: torch.Tensor) -> torch.Tensor:
+        min_v = self.min.reshape(1, -1, 1, 1)
+        max_v = self.max.reshape(1, -1, 1, 1)
+        return (x - min_v) / (max_v - min_v + 1e-6)
+
+    def denormalizer(self):
+        def denormalize(x: torch.Tensor) -> torch.Tensor:
+            min_v = self.min.reshape(1, -1, 1, 1)
+            max_v = self.max.reshape(1, -1, 1, 1)
+            return x * (max_v - min_v + 1e-6) + min_v
+        return denormalize
+
+
 if __name__ == '__main__':
 
     print("Testing Dataset classes...")
@@ -387,42 +457,42 @@ if __name__ == '__main__':
     # print(val_DDD[inx][0].min())
     # print(val_DDD[inx][1].max())
 
-    # train_set = ERA5Dataset(
-    #     data_path="data/ERA5/ERA5_data/train_seq_state.h5",
-    #     seq_length=12,
-    #     min_path="data/ERA5/ERA5_data/min_val.npy",
-    #     max_path="data/ERA5/ERA5_data/max_val.npy"
-    # )
+    train_set = ERA5HighDataset(
+        data_path="data/ERA5_high/raw_data/weatherbench_train.h5",
+        seq_length=12,
+        min_path="data/ERA5_high/raw_data/era5high_240x121_min.npy",
+        max_path="data/ERA5_high/raw_data/era5high_240x121_max.npy"
+    )
 
-    # val_set = ERA5Dataset(
-    #     data_path="data/ERA5/ERA5_data/val_seq_state.h5",
-    #     seq_length=12,
-    #     min_path="data/ERA5/ERA5_data/min_val.npy",
-    #     max_path="data/ERA5/ERA5_data/max_val.npy"
-    # )
+    val_set = ERA5HighDataset(
+        data_path="data/ERA5_high/raw_data/weatherbench_test.h5",
+        seq_length=12,
+        min_path="data/ERA5_high/raw_data/era5high_240x121_min.npy",
+        max_path="data/ERA5_high/raw_data/era5high_240x121_max.npy",
+    )
 
-    # inx = 1
+    inx = 1
 
-    # print(train_set.min.shape)
-    # print(train_set.max.shape)
+    print(train_set.min.shape)
+    print(train_set.max.shape)
 
-    # print(train_set[inx][0].shape)
+    print(train_set[inx][0].shape)
 
-    # inx = 10
-    # x, y = train_set[inx]
-    # print("Train x shape:", x.shape)  # [12, C, H, W]
-    # print("Train y shape:", y.shape)  # [12, C, H, W]
-    # print("x min:", x.min().item(), "x max:", x.max().item())
-    # print("y min:", y.min().item(), "y max:", y.max().item())
+    inx = 10
+    x, y = train_set[inx]
+    print("Train x shape:", x.shape)  # [12, C, H, W]
+    print("Train y shape:", y.shape)  # [12, C, H, W]
+    print("x min:", x.min().item(), "x max:", x.max().item())
+    print("y min:", y.min().item(), "y max:", y.max().item())
 
-    # assert x.min() >= 0.0 and x.max() <= 1.0, "x not in [0, 1]"
-    # assert y.min() >= 0.0 and y.max() <= 1.0, "y not in [0, 1]"
+    assert x.min() >= 0.0 and x.max() <= 1.0, "x not in [0, 1]"
+    assert y.min() >= 0.0 and y.max() <= 1.0, "y not in [0, 1]"
 
-    # denorm = train_set.denormalizer()
-    # x_denorm = denorm(x)
-    # print("Denormalized x shape:", x_denorm.shape)
-    # print("Channel 0 x_denorm min:", x_denorm[:, 0, ...].min().item(), "Channel 0 x_denorm max:", x_denorm[:, 0, ...].max().item())
-    # print("Channel 1 x_denorm min:", x_denorm[:, 1, ...].min().item(), "Channel 1 x_denorm max:", x_denorm[:, 1, ...].max().item())
-    # print("Channel 2 x_denorm min:", x_denorm[:, 2, ...].min().item(), "Channel 2 x_denorm max:", x_denorm[:, 2, ...].max().item())
-    # print("Channel 3 x_denorm min:", x_denorm[:, 3, ...].min().item(), "Channel 3 x_denorm max:", x_denorm[:, 3, ...].max().item())
-    # print("Channel 4 x_denorm min:", x_denorm[:, 4, ...].min().item(), "Channel 4 x_denorm max:", x_denorm[:, 4, ...].max().item())
+    denorm = train_set.denormalizer()
+    x_denorm = denorm(x)
+    print("Denormalized x shape:", x_denorm.shape)
+    print("Channel 0 x_denorm min:", x_denorm[:, 0, ...].min().item(), "Channel 0 x_denorm max:", x_denorm[:, 0, ...].max().item())
+    print("Channel 1 x_denorm min:", x_denorm[:, 1, ...].min().item(), "Channel 1 x_denorm max:", x_denorm[:, 1, ...].max().item())
+    print("Channel 2 x_denorm min:", x_denorm[:, 2, ...].min().item(), "Channel 2 x_denorm max:", x_denorm[:, 2, ...].max().item())
+    print("Channel 3 x_denorm min:", x_denorm[:, 3, ...].min().item(), "Channel 3 x_denorm max:", x_denorm[:, 3, ...].max().item())
+    print("Channel 4 x_denorm min:", x_denorm[:, 4, ...].min().item(), "Channel 4 x_denorm max:", x_denorm[:, 4, ...].max().item())

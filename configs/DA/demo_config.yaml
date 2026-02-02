@@ -1,0 +1,23 @@
+online_nsteps: 28
+events:
+  - at: 0
+    win: 2
+    obs_offsets: [0, 1]
+  - at: 4
+    win: 3
+    obs_offsets: [0, 1, 2]
+  - at: 8
+    win: 4
+    obs_offsets: [0, 1, 2, 3]
+  - at: 12
+    win: 2
+    obs_offsets: [0, 1]
+  - at: 16
+    win: 4
+    obs_offsets: [0, 2, 3]
+  - at: 20
+    win: 3
+    obs_offsets: [0, 2]
+  - at: 24
+    win: 4
+    obs_offsets: [0, 2]
