@@ -35,7 +35,7 @@ SAVE_PREFIX = "interobs_direct_era5_"
 
 # If SAVE_PREFIX contains "interobs", we will draw observation frames (x positions)
 # as black dashed lines. These are assimilation-step indices (1-based).
-OBSERVATION_SCHEDULE: List[int] = [1, 11, 21, 31, 41]
+OBSERVATION_SCHEDULE: List[int] = [1, 6, 11, 16, 21, 26]
 
 # Channel and metric labels
 CHANNEL_LABELS: List[str] = [

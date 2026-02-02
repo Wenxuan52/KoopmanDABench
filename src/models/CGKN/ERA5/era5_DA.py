@@ -317,14 +317,21 @@ def CGFilter(
     device = obs_series.device
     T, dim_u1, _ = obs_series.shape
     dim_z = mu0.shape[0]
-    sigma = clamp_sigma_sections(sigma, dim_u1)
+    sigma = clamp_sigma_sections(
+                sigma, dim_u1,
+                obs_min=1e-6, obs_max=None,
+                lat_min=1e-6, lat_max=None,
+            )
     s1 = torch.diag(sigma[:dim_u1]).to(device)
     s2 = torch.diag(sigma[dim_u1:]).to(device)
     eps = kalman_reg
     eye_u1 = torch.eye(dim_u1, device=device)
     eye_z = torch.eye(dim_z, device=device)
     obs_var = observation_variance if observation_variance is not None else 0.0
-    s1_cov = s1 @ s1.T + eps * eye_u1 + obs_var * eye_u1
+    s1_cov = s1 @ s1.T + eps * eye_u1
+    if obs_var > 0:
+        # obs_var is variance of u1 value noise; du1 has ~2*obs_var; convert to diffusion intensity by /dt
+        s1_cov = s1_cov + (2.0 * obs_var / dt) * eye_u1
     s2_cov = s2 @ s2.T + eps * eye_z
     S_inv = torch.linalg.inv(s1_cov)
 
@@ -543,8 +550,17 @@ def run_multi_da_experiment(
 
     update_mask = update_mask.to(device)
 
-    mu0 = torch.zeros(latent_dim, 1, device=device)
-    R0 = 1e-2 * torch.eye(latent_dim, device=device)
+    # mu0 = torch.zeros(latent_dim, 1, device=device)
+    # R0 = 1e-2 * torch.eye(latent_dim, device=device)
+
+    v0_enc = encoder(normalized_groundtruth[:1].unsqueeze(0).to(device))[:, 0, :]  # [1, dim_z]
+    mu0 = v0_enc.squeeze(0).detach().unsqueeze(-1)  # [dim_z, 1]
+
+    # --- set R0 small: trust encoder init, prevent DA dragging it away too hard ---
+    R0 = 1e-4 * torch.eye(latent_dim, device=device)
+
+    dt_obs = dt
+    dt_int = dt
 
     run_metrics = {"mse": [], "rrmse": [], "ssim": []}
     first_run_states = None
@@ -573,7 +589,9 @@ def run_multi_da_experiment(
         obs_series = u1_obs.unsqueeze(-1).to(device)   # [T, dim_u1, 1]
 
         run_start = perf_counter()
-        obs_var = observation_variance if observation_variance is not None else obs_noise_std**2
+        obs_floor_std = 0.02  # 可调：0.01~0.05
+        obs_var = (max(obs_noise_std, obs_floor_std) ** 2) if observation_variance is None else observation_variance
+        # obs_var = observation_variance if observation_variance is not None else obs_noise_std**2
         mu_post, _, u1_used = CGFilter(
             cgn,
             sigma_hat.to(device),
@@ -591,7 +609,9 @@ def run_multi_da_experiment(
         run_times.append(perf_counter() - run_start)
 
         tspan = torch.linspace(0.0, window_length * dt, window_length + 1, device=device)
-        v0 = encoder(normalized_groundtruth[:1].unsqueeze(0).to(device))[:, 0, :]
+        # v0 = encoder(normalized_groundtruth[:1].unsqueeze(0).to(device))[:, 0, :]
+        v0 = torch.zeros(1, latent_dim, device=device)
+
         uext0 = torch.cat([u1_init.to(device).unsqueeze(0), v0], dim=-1)
         uext_pred = torchdiffeq.odeint(ode_func, uext0, tspan, method="rk4", options={"step_size": dt})
         uext_pred = uext_pred.transpose(0, 1)

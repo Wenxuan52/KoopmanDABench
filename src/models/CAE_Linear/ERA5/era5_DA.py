@@ -100,6 +100,7 @@ def run_multi_da_experiment(
     window_length: int = 30,
     num_runs: int = 5,
     early_stop_config: Tuple[int, float] = (100, 1e-3),
+    max_iterations: int = 5000,
     start_T: int = 0,
     da_start_step: int = 1,
     model_name: str = "CAE_Linear",
@@ -167,6 +168,7 @@ def run_multi_da_experiment(
         obs_handler=obs_handler,
         device=device,
         early_stop=early_stop_config,
+        max_iterations=max_iterations,
     )
 
     run_metrics = {"mse": [], "rrmse": [], "ssim": []}

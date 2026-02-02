@@ -320,7 +320,7 @@ def make_era5_da_gif_separate(
             repeat=True,
         )
 
-        out_path = os.path.join(out_dir, f"era5_da_fullobs_channel{ch}.gif")
+        out_path = os.path.join(out_dir, f"era5_da_interobs_channel{ch}.gif")
         writer = PillowWriter(fps=1.0)
         anim.save(out_path, writer=writer)
 
