@@ -26,7 +26,7 @@ def main():
         print(f"[INFO] {torch.cuda.get_device_properties(0)}")
 
     # Load configuration
-    config_path = "../../../../configs/CAE_Linear_ERA5_High.yaml"
+    config_path = "../../../../configs/CAE_Linear_ERA5_HIGH.yaml"
     if not os.path.exists(config_path):
         config_path = "../../../../configs/CAE_Linear_ERA5.yaml"
 

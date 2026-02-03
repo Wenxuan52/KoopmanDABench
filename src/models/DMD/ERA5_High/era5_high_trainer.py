@@ -102,7 +102,7 @@ def main():
     torch.set_default_dtype(torch.float32)
 
     # Load configuration
-    config_path = "../../../../configs/DMD_ERA5_High.yaml"
+    config_path = "../../../../configs/DMD_ERA5_HIGH.yaml"
     if not os.path.exists(config_path):
         config_path = "../../../../configs/DMD_ERA5.yaml"
 
