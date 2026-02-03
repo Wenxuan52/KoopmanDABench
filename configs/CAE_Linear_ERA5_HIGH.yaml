@@ -1,0 +1,15 @@
+save_folder: '../../../../results/CAE_Linear/ERA5_High/3loss_model'
+seq_length: 10
+num_epochs: 300
+decay_step: 20
+batch_size: 12
+learning_rate: 0.001
+decay_rate: 0.9
+lamb: 0.5
+lamb_ms: 1.0
+multi_step: 5
+patience: 50
+train_data_path: "../../../../data/ERA5_high/raw_data/weatherbench_train.h5"
+val_data_path: "../../../../data/ERA5_high/raw_data/weatherbench_test.h5"
+min_path: "../../../../data/ERA5_high/raw_data/era5high_240x121_min.npy"
+max_path: "../../../../data/ERA5_high/raw_data/era5high_240x121_max.npy"
