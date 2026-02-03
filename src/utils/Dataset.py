@@ -389,39 +389,41 @@ if __name__ == '__main__':
     # print(val_CDD[inx][0].min())
     # print(val_CDD[inx][1].max())
 
-    # KDD = KolDynamicsDataset(data_path="data/kol/kolmogorov_train_data.npy",
-    #             seq_length = 12,
-    #             mean=None,
-    #             std=None)
+    KDD = KolDynamicsDataset(data_path="data/kol/kolmogorov_train_data.npy",
+                seq_length = 12,
+                mean=None,
+                std=None)
     
-    # print(KDD.mean)
-    # print(KDD.std)
+    print(KDD.mean)
+    print(KDD.std)
 
-    # inx = 10
-    # print(KDD[inx][0].dtype)
-    # print(KDD[inx][1].dtype)
+    print(KDD.data.shape)
 
-    # print(KDD[inx][0].shape)
-    # print(KDD[inx][1].shape)
+    inx = 10
+    print(KDD[inx][0].dtype)
+    print(KDD[inx][1].dtype)
 
-    # print(KDD[inx][0].min())
-    # print(KDD[inx][1].max())
+    print(KDD[inx][0].shape)
+    print(KDD[inx][1].shape)
 
-    # print(KDD.total_sample)
+    print(KDD[inx][0].min())
+    print(KDD[inx][1].max())
 
-    # val_KDD = KolDynamicsDataset(data_path="data/kol/kolmogorov_val_data.npy",
-    #             seq_length = 12,
-    #             mean=KDD.mean,
-    #             std=KDD.std)
+    print(KDD.total_sample)
+
+    val_KDD = KolDynamicsDataset(data_path="data/kol/kolmogorov_val_data.npy",
+                seq_length = 12,
+                mean=KDD.mean,
+                std=KDD.std)
     
-    # print(val_KDD.mean)
-    # print(val_KDD.std)
+    print(val_KDD.mean)
+    print(val_KDD.std)
 
-    # print(val_KDD[inx][0].shape)
-    # print(val_KDD[inx][1].shape)
+    print(val_KDD[inx][0].shape)
+    print(val_KDD[inx][1].shape)
 
-    # print(val_KDD[inx][0].min())
-    # print(val_KDD[inx][1].max())
+    print(val_KDD[inx][0].min())
+    print(val_KDD[inx][1].max())
 
     # DDD = DamDynamicsDataset(data_path="data/dam/dam_train_data.npy",
     #             seq_length = 12,
@@ -457,42 +459,42 @@ if __name__ == '__main__':
     # print(val_DDD[inx][0].min())
     # print(val_DDD[inx][1].max())
 
-    train_set = ERA5HighDataset(
-        data_path="data/ERA5_high/raw_data/weatherbench_train.h5",
-        seq_length=12,
-        min_path="data/ERA5_high/raw_data/era5high_240x121_min.npy",
-        max_path="data/ERA5_high/raw_data/era5high_240x121_max.npy"
-    )
+    # train_set = ERA5HighDataset(
+    #     data_path="data/ERA5_high/raw_data/weatherbench_train.h5",
+    #     seq_length=12,
+    #     min_path="data/ERA5_high/raw_data/era5high_240x121_min.npy",
+    #     max_path="data/ERA5_high/raw_data/era5high_240x121_max.npy"
+    # )
 
-    val_set = ERA5HighDataset(
-        data_path="data/ERA5_high/raw_data/weatherbench_test.h5",
-        seq_length=12,
-        min_path="data/ERA5_high/raw_data/era5high_240x121_min.npy",
-        max_path="data/ERA5_high/raw_data/era5high_240x121_max.npy",
-    )
+    # val_set = ERA5HighDataset(
+    #     data_path="data/ERA5_high/raw_data/weatherbench_test.h5",
+    #     seq_length=12,
+    #     min_path="data/ERA5_high/raw_data/era5high_240x121_min.npy",
+    #     max_path="data/ERA5_high/raw_data/era5high_240x121_max.npy",
+    # )
 
-    inx = 1
+    # inx = 1
 
-    print(train_set.min.shape)
-    print(train_set.max.shape)
+    # print(train_set.min.shape)
+    # print(train_set.max.shape)
 
-    print(train_set[inx][0].shape)
+    # print(train_set[inx][0].shape)
 
-    inx = 10
-    x, y = train_set[inx]
-    print("Train x shape:", x.shape)  # [12, C, H, W]
-    print("Train y shape:", y.shape)  # [12, C, H, W]
-    print("x min:", x.min().item(), "x max:", x.max().item())
-    print("y min:", y.min().item(), "y max:", y.max().item())
+    # inx = 10
+    # x, y = train_set[inx]
+    # print("Train x shape:", x.shape)  # [12, C, H, W]
+    # print("Train y shape:", y.shape)  # [12, C, H, W]
+    # print("x min:", x.min().item(), "x max:", x.max().item())
+    # print("y min:", y.min().item(), "y max:", y.max().item())
 
-    assert x.min() >= 0.0 and x.max() <= 1.0, "x not in [0, 1]"
-    assert y.min() >= 0.0 and y.max() <= 1.0, "y not in [0, 1]"
+    # assert x.min() >= 0.0 and x.max() <= 1.0, "x not in [0, 1]"
+    # assert y.min() >= 0.0 and y.max() <= 1.0, "y not in [0, 1]"
 
-    denorm = train_set.denormalizer()
-    x_denorm = denorm(x)
-    print("Denormalized x shape:", x_denorm.shape)
-    print("Channel 0 x_denorm min:", x_denorm[:, 0, ...].min().item(), "Channel 0 x_denorm max:", x_denorm[:, 0, ...].max().item())
-    print("Channel 1 x_denorm min:", x_denorm[:, 1, ...].min().item(), "Channel 1 x_denorm max:", x_denorm[:, 1, ...].max().item())
-    print("Channel 2 x_denorm min:", x_denorm[:, 2, ...].min().item(), "Channel 2 x_denorm max:", x_denorm[:, 2, ...].max().item())
-    print("Channel 3 x_denorm min:", x_denorm[:, 3, ...].min().item(), "Channel 3 x_denorm max:", x_denorm[:, 3, ...].max().item())
-    print("Channel 4 x_denorm min:", x_denorm[:, 4, ...].min().item(), "Channel 4 x_denorm max:", x_denorm[:, 4, ...].max().item())
+    # denorm = train_set.denormalizer()
+    # x_denorm = denorm(x)
+    # print("Denormalized x shape:", x_denorm.shape)
+    # print("Channel 0 x_denorm min:", x_denorm[:, 0, ...].min().item(), "Channel 0 x_denorm max:", x_denorm[:, 0, ...].max().item())
+    # print("Channel 1 x_denorm min:", x_denorm[:, 1, ...].min().item(), "Channel 1 x_denorm max:", x_denorm[:, 1, ...].max().item())
+    # print("Channel 2 x_denorm min:", x_denorm[:, 2, ...].min().item(), "Channel 2 x_denorm max:", x_denorm[:, 2, ...].max().item())
+    # print("Channel 3 x_denorm min:", x_denorm[:, 3, ...].min().item(), "Channel 3 x_denorm max:", x_denorm[:, 3, ...].max().item())
+    # print("Channel 4 x_denorm min:", x_denorm[:, 4, ...].min().item(), "Channel 4 x_denorm max:", x_denorm[:, 4, ...].max().item())

@@ -1,8 +1,8 @@
-from era5_multi_DA import run_multi_da_experiment
+from era5_multi_DA import run_multi_continuous_da_experiment
 
 
 if __name__ == "__main__":
-    # run_multi_da_experiment(mode="default")
+    run_multi_continuous_da_experiment(mode="default")
 
-    run_multi_da_experiment(mode="custom", config_path="configs/DA/demo_config.yaml")
+    # run_multi_continuous_da_experiment(mode="custom", config_path="configs/DA/demo_config.yaml")
 
