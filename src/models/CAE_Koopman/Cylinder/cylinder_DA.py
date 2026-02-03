@@ -1,4 +1,6 @@
-"""Multi-run data assimilation experiments for DMD on Cylinder."""
+"""
+Multi-run data assimilation experiments for CAE_Koopman on Cylinder.
+"""
 
 import os
 import sys
@@ -14,9 +16,9 @@ src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", ".."
 sys.path.append(src_directory)
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib_config")
 
-from src.models.DMD.base import TorchDMD
-from src.models.DMD.dabase import (
-    DMDDAExecutor,
+from src.models.CAE_Koopman.Cylinder.cylinder_model import CYLINDER_C_FORWARD
+from src.models.CAE_Koopman.dabase import (
+    KoopmanDAExecutor,
     UnifiedDynamicSparseObservationHandler,
     set_device,
     set_seed,
@@ -49,7 +51,7 @@ def compute_metrics(
     T = da_states.shape[0]
     assert start_offset + T <= groundtruth.shape[0], "groundtruth length mismatch"
     for step in range(T):
-        target = groundtruth[step + start_offset]
+        target = groundtruth[step + start_offset]  # assimilation starts from index 1
         da = safe_denorm(da_states[step], dataset)
         noda = safe_denorm(noda_states[step], dataset)
 
@@ -102,25 +104,33 @@ def run_multi_da_experiment(
     start_T: int = 0,
     da_start_step: int = 1,
     sample_idx: int = 0,
-    model_name: str = "DMD",
-    svd_rank: int | None = None,
+    model_name: str = "CAE_Koopman",
     save_prefix: str | None = None,
 ):
     """Run repeated DA experiments and collect mean/std statistics."""
+
     assert 0 <= da_start_step <= window_length, "da_start_step must in [0, window_length]"
 
     set_seed(42)
     device = set_device()
     print(f"Using device: {device}")
 
-    # Load DMD model
-    dmd_model = TorchDMD(device=device)
-    dmd_model.load_dmd(f"../../../../results/{model_name}/Cylinder/dmd_model.pth")
-    if svd_rank is not None:
-        print(f"Overriding DMD rank to {svd_rank} (original {dmd_model.svd_rank})")
-        dmd_model.svd_rank = svd_rank
-    latent_dim = dmd_model.modes.shape[1]
-    print(f"DMD model loaded with latent dimension {latent_dim}")
+    # Load forward model
+    forward_model = CYLINDER_C_FORWARD().to(device)
+    forward_model.load_state_dict(
+        torch.load(
+            f"../../../../results/{model_name}/Cylinder/3loss_model/forward_model.pt",
+            weights_only=True,
+            map_location=device,
+        )
+    )
+    forward_model.C_forward = torch.load(
+        f"../../../../results/{model_name}/Cylinder/3loss_model/C_forward.pt",
+        weights_only=True,
+        map_location=device,
+    ).to(device)
+    forward_model.eval()
+    print("Forward model loaded.")
 
     # Load dataset and slice sequence
     forward_step = 12
@@ -137,7 +147,7 @@ def run_multi_da_experiment(
         std=cyl_train_dataset.std,
     )
 
-    total_frames = window_length + da_start_step + 1
+    total_frames = window_length + da_start_step
     if start_T + total_frames > cyl_val_dataset.data.shape[1]:
         raise ValueError("Requested window exceeds available cylinder sequence length.")
 
@@ -165,14 +175,14 @@ def run_multi_da_experiment(
     if len(obs_steps) == 1:
         gaps = None
 
-    B = torch.eye(2 * latent_dim, device=device)
+    latent_dim = forward_model.C_forward.shape[0]
+    B = torch.eye(latent_dim, device=device)
     R = obs_handler.create_block_R_matrix(base_variance=observation_variance).to(device)
 
-    executor = DMDDAExecutor(
-        dmd_model=dmd_model,
+    executor = KoopmanDAExecutor(
+        forward_model=forward_model,
         obs_handler=obs_handler,
         device=device,
-        image_shape=sample_shape,
         early_stop=early_stop_config,
         max_iterations=max_iterations,
     )
@@ -188,12 +198,12 @@ def run_multi_da_experiment(
         set_seed(42 + run_idx)
 
         # ===== 1) Background (t=1) =====
-        x0 = normalized_groundtruth[0].to(device)
-        b = executor.encode_state(x0)
+        x0 = normalized_groundtruth[0].to(device).unsqueeze(0)
+        z = forward_model.K_S(x0)
         for _ in range(da_start_step):
-            b = executor.latent_forward(b).squeeze(0)
-        b_start_background = b
-        background_state = executor.complex_to_real(b_start_background).squeeze()
+            z = forward_model.latent_forward(z)
+        z_start_background = z
+        background_state = z_start_background.ravel()
 
         # ===== 2) Observations for this run (scheduled times only) =====
         obs_list = []
@@ -233,18 +243,22 @@ def run_multi_da_experiment(
             run_iterations.append(0)
 
         # ===== 4) Rollout DA trajectory =====
-        b_current = executor.real_to_complex(z_assimilated).squeeze(0)
+        if z_assimilated.ndim == 1:
+            z = z_assimilated.unsqueeze(0)
+        else:
+            z = z_assimilated
+
         da_states = []
         for _ in range(window_length):
-            da_states.append(executor.decode_latent(b_current).squeeze(0).detach().cpu())
-            b_current = executor.latent_forward(b_current).squeeze(0)
+            da_states.append(executor.decode_latent(z).squeeze(0).detach().cpu())
+            z = forward_model.latent_forward(z)
 
         # ===== 5) NoDA baseline rollout =====
-        b_current = b_start_background.clone()
+        z = z_start_background.clone()
         noda_states = []
         for _ in range(window_length):
-            noda_states.append(executor.decode_latent(b_current).squeeze(0).detach().cpu())
-            b_current = executor.latent_forward(b_current).squeeze(0)
+            noda_states.append(executor.decode_latent(z).squeeze(0).detach().cpu())
+            z = forward_model.latent_forward(z)
 
         da_stack = torch.stack(da_states)
         noda_stack = torch.stack(noda_states)
@@ -265,7 +279,7 @@ def run_multi_da_experiment(
 
         print(f"Run {run_idx + 1} assimilation time: {elapsed:.2f}s")
 
-    save_dir = "../../../../results/DMD/Cylinder/DA"
+    save_dir = "../../../../results/CAE_Koopman/Cylinder/DA"
     os.makedirs(save_dir, exist_ok=True)
 
     def prefixed(name: str) -> str:
