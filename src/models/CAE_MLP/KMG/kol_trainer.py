@@ -34,7 +34,7 @@ def main():
         print(f"[INFO] {torch.cuda.get_device_properties(0)}")
     
     # Load configuration
-    config_path = "../../../../configs/CAE_Weaklinear_KOL.yaml"
+    config_path = "../../../../configs/CAE_MLP_KOL.yaml"
     with open(config_path, 'r') as file:
         config = yaml.safe_load(file)
     
