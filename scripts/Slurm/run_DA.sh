@@ -2,11 +2,11 @@
 
 #SBATCH --job-name=run_DA
 #SBATCH --partition=root
-#SBATCH --qos=long
+#SBATCH --qos=short
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=40G
-#SBATCH --time=12:00:00
+#SBATCH --time=03:00:00
 #SBATCH -e run_DA_full.err
 #SBATCH -o run_DA_full.out
 
@@ -15,9 +15,9 @@ conda activate koopmanda
 
 # Cylinder / Dam / ERA5
 # DMD / CAE_Koopman / CAE_Linear / CAE_Weaklinear / CAE_MLP / discreteCGKN / DBF
-cd src/models/DMD/ERA5
+cd src/models/CAE_Koopman/Cylinder
 
-python direct_DA.py
+python cylinder_DA.py
 
 # cd src/assimilation/
 

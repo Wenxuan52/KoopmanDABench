@@ -65,11 +65,13 @@ def compute_metrics(
 
             mse_da_c = diff_da.mean().item()
             mse_noda_c = diff_noda.mean().item()
-
+            
             rrmse_da_c = (diff_da.sum() / (target[c] ** 2).sum()).sqrt().item()
             rrmse_noda_c = (diff_noda.sum() / (target[c] ** 2).sum()).sqrt().item()
 
             data_range_c = target[c].max().item() - target[c].min().item()
+            print(target[c].numpy().shape)
+            print(da[c].numpy().shape)
             if data_range_c > 0:
                 ssim_da_c = ssim(target[c].numpy(), da[c].numpy(), data_range=data_range_c)
                 ssim_noda_c = ssim(target[c].numpy(), noda[c].numpy(), data_range=data_range_c)
