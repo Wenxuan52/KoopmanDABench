@@ -40,7 +40,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.utils.Dataset import CylinderDynamicsDataset  # noqa: E402
 from cylinder_model import CylinderEncoder, CylinderDecoder  # noqa: E402
-from cylinder_train import (  # noqa: E402
+from cylinder_trainer import (  # noqa: E402
     CGFilter,
     CGKN_ODE,
     CGN,
