@@ -25,13 +25,24 @@ from src.utils.Dataset import CylinderDynamicsDataset
 
 
 def safe_denorm(x: torch.Tensor, dataset: CylinderDynamicsDataset) -> torch.Tensor:
-    """Denormalize Cylinder tensors on CPU."""
-    if isinstance(x, torch.Tensor):
-        x_cpu = x.detach().cpu()
-        mean = dataset.mean.reshape(1, -1, 1, 1)
-        std = dataset.std.reshape(1, -1, 1, 1)
-        return (x_cpu * std + mean).cpu()
-    return x
+    """Denormalize Cylinder tensors on CPU. Keep same ndim as input."""
+    if not isinstance(x, torch.Tensor):
+        return x
+
+    x_cpu = x.detach().cpu()
+    mean = torch.as_tensor(dataset.mean, dtype=x_cpu.dtype, device=x_cpu.device)
+    std  = torch.as_tensor(dataset.std,  dtype=x_cpu.dtype, device=x_cpu.device)
+
+    if x_cpu.ndim == 4:          # (B,C,H,W)
+        mean = mean.view(1, -1, 1, 1)
+        std  = std.view(1, -1, 1, 1)
+    elif x_cpu.ndim == 3:        # (C,H,W)
+        mean = mean.view(-1, 1, 1)
+        std  = std.view(-1, 1, 1)
+    else:
+        raise ValueError(f"safe_denorm expects 3D or 4D tensor, got shape {tuple(x_cpu.shape)}")
+
+    return x_cpu * std + mean
 
 
 def compute_metrics(
@@ -41,47 +52,53 @@ def compute_metrics(
     dataset: CylinderDynamicsDataset,
     start_offset: int = 1,
 ) -> Dict[str, np.ndarray]:
-    """Compute per-step, per-channel metrics for one assimilation run."""
+    """Compute per-step metrics on magnitude (L2 norm across channels)."""
     mse = []
     rrmse = []
     ssim_scores = []
 
+    eps = 1e-12
     T = da_states.shape[0]
     assert start_offset + T <= groundtruth.shape[0], "groundtruth length mismatch"
+
     for step in range(T):
-        target = groundtruth[step + start_offset]
-        da = safe_denorm(da_states[step], dataset)
+        target = groundtruth[step + start_offset]  # (C,H,W) on CPU
+        da = safe_denorm(da_states[step], dataset)     # (C,H,W) or (1,C,H,W)
         noda = safe_denorm(noda_states[step], dataset)
 
-        step_mse = []
-        step_rrmse = []
-        step_ssim = []
+        # squeeze possible batch dim
+        if da.ndim == 4:
+            da = da.squeeze(0)
+        if noda.ndim == 4:
+            noda = noda.squeeze(0)
 
-        for c in range(target.shape[0]):
-            diff_da = (da[c] - target[c]) ** 2
-            diff_noda = (noda[c] - target[c]) ** 2
+        # --- magnitude field: (H,W) ---
+        target_mag = torch.sqrt((target ** 2).sum(dim=0))
+        da_mag     = torch.sqrt((da ** 2).sum(dim=0))
+        noda_mag   = torch.sqrt((noda ** 2).sum(dim=0))
 
-            mse_da_c = diff_da.mean().item()
-            mse_noda_c = diff_noda.mean().item()
+        diff_da = (da_mag - target_mag) ** 2
+        diff_noda = (noda_mag - target_mag) ** 2
 
-            rrmse_da_c = (diff_da.sum() / (target[c] ** 2).sum()).sqrt().item()
-            rrmse_noda_c = (diff_noda.sum() / (target[c] ** 2).sum()).sqrt().item()
+        mse_da = diff_da.mean().item()
+        mse_noda = diff_noda.mean().item()
 
-            data_range_c = target[c].max().item() - target[c].min().item()
-            if data_range_c > 0:
-                ssim_da_c = ssim(target[c].numpy(), da[c].numpy(), data_range=data_range_c)
-                ssim_noda_c = ssim(target[c].numpy(), noda[c].numpy(), data_range=data_range_c)
-            else:
-                ssim_da_c = 1.0
-                ssim_noda_c = 1.0
+        denom = (target_mag ** 2).sum().clamp_min(eps)
+        rrmse_da = torch.sqrt(diff_da.sum() / denom).item()
+        rrmse_noda = torch.sqrt(diff_noda.sum() / denom).item()
 
-            step_mse.append((mse_da_c, mse_noda_c))
-            step_rrmse.append((rrmse_da_c, rrmse_noda_c))
-            step_ssim.append((ssim_da_c, ssim_noda_c))
+        data_range = (target_mag.max() - target_mag.min()).item()
+        if data_range > 0:
+            ssim_da = ssim(target_mag.numpy(), da_mag.numpy(), data_range=data_range)
+            ssim_noda = ssim(target_mag.numpy(), noda_mag.numpy(), data_range=data_range)
+        else:
+            ssim_da = 1.0
+            ssim_noda = 1.0
 
-        mse.append(step_mse)
-        rrmse.append(step_rrmse)
-        ssim_scores.append(step_ssim)
+        # 这里仍保持“每步一个通道”的结构，形状会变成 (T,1,2)
+        mse.append([(mse_da, mse_noda)])
+        rrmse.append([(rrmse_da, rrmse_noda)])
+        ssim_scores.append([(ssim_da, ssim_noda)])
 
     return {
         "mse": np.array(mse),

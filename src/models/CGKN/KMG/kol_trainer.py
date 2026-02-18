@@ -114,9 +114,9 @@ class Config:
     num_workers = 4
 
     # Stage 1 (short forecast)
-    s1_epochs = 100
+    s1_epochs = 50
     s1_short_steps = 6
-    s1_lr = 1e-3
+    s1_lr = 1e-4
 
     # Stage 2 (add DA)
     s2_epochs = 20
@@ -129,7 +129,7 @@ class Config:
     kalman_reg = 1e-6
 
     # Stage 1 checkpoint options
-    use_pretrained_stage1 = True
+    use_pretrained_stage1 = False
     stage1_ckpt_prefix = "stage1"
     stage1_ckpt_dir = out_dir
 

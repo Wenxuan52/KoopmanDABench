@@ -1,10 +1,11 @@
 from torch.nn.modules import Module
 
-import sys
-import os
-sys.path.append(os.path.abspath(".."))
-from base import *
+# import sys
+# import os
+# sys.path.append(os.path.abspath(".."))
+# from base import *
 
+from src.models.CAE_Koopman.base import *
 import numpy as np
 from einops import rearrange
 
