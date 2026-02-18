@@ -92,7 +92,7 @@ class Config:
     os.makedirs(out_dir, exist_ok=True)
 
     # Data / time
-    seq_length = 50          # 每个子序列长度，必须 >= s2_long_steps
+    seq_length = 10          # 每个子序列长度，必须 >= s2_long_steps
     dt = 0.001                  # 真实物理Δt，或用1.0代表一帧
     train_split = 0.8
 
@@ -121,7 +121,7 @@ class Config:
     # Stage 2 (add DA)
     s2_epochs = 20
     s2_short_steps = 6
-    s2_long_steps = 20       # DA 窗口长度，必须 <= seq_length
+    s2_long_steps = 10       # DA 窗口长度，必须 <= seq_length
     s2_cut_warmup = 5
     s2_lr = 1e-3
 
