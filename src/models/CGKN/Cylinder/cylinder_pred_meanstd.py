@@ -17,7 +17,7 @@ sys.path.append(src_directory)
 # ------------------- CGKN 模块导入 -------------------
 from src.utils.Dataset import CylinderDynamicsDataset
 from cylinder_model import CylinderEncoder, CylinderDecoder
-from cylinder_train import CGN, CGKN_ODE, ProbeSampler, cfg
+from cylinder_trainer import CGN, CGKN_ODE, ProbeSampler, cfg
 
 
 # ===========================
