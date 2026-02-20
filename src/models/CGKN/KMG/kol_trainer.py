@@ -119,17 +119,17 @@ class Config:
     s1_lr = 1e-4
 
     # Stage 2 (add DA)
-    s2_epochs = 20
+    s2_epochs = 50
     s2_short_steps = 6
     s2_long_steps = 10       # DA 窗口长度，必须 <= seq_length
     s2_cut_warmup = 5
-    s2_lr = 1e-3
+    s2_lr = 1e-4
 
     # Numerical stability
     kalman_reg = 1e-6
 
     # Stage 1 checkpoint options
-    use_pretrained_stage1 = False
+    use_pretrained_stage1 = True
     stage1_ckpt_prefix = "stage1"
     stage1_ckpt_dir = out_dir
 

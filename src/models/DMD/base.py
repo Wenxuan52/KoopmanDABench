@@ -37,26 +37,28 @@ class TorchDMD:
     def fit(self, X, Y=None):
         """
         Fit the DMD model to the data.
-        
+
         Parameters
         ----------
         X : array-like, shape (n_features, n_snapshots)
             Input snapshots matrix
         Y : array-like, shape (n_features, n_snapshots), optional
             Target snapshots matrix. If None, uses X[:, 1:] and X[:, :-1]
-            
+
         Returns
         -------
         self : TorchDMD
             Fitted DMD model
         """
-        # Convert to torch tensors and move to device
+        # ---- 0) Convert inputs to torch tensors ----
         if isinstance(X, torch.Tensor):
             X = X.to(dtype=torch.float32, device=self.device)
         else:
             X = torch.tensor(X, dtype=torch.float32, device=self.device)
-        
+
         if Y is None:
+            if X.shape[1] < 2:
+                raise ValueError(f"Need at least 2 snapshots when Y is None, got {X.shape[1]}")
             X_data = X[:, :-1]
             Y_data = X[:, 1:]
             self.n_snapshots = X.shape[1]
@@ -65,45 +67,97 @@ class TorchDMD:
                 Y = Y.to(dtype=torch.float32, device=self.device)
             else:
                 Y = torch.tensor(Y, dtype=torch.float32, device=self.device)
+
+            if X.shape != Y.shape:
+                raise ValueError(f"X and Y must have the same shape, got X={X.shape}, Y={Y.shape}")
+
             X_data = X
             Y_data = Y
             self.n_snapshots = X.shape[1]
-            
-        # Compute SVD of X_data
-        U, s, Vh = torch.linalg.svd(X_data, full_matrices=False)
-        V = Vh.T
-        
-        # Determine truncation rank
-        r = self._compute_rank(s)
-        print('r: ', r)
-        U_r = U[:, :r]
-        s_r = s[:r]
-        V_r = V[:, :r]
-        
-        # Compute Atilde (low-rank approximation of A)
-        self._Atilde = U_r.T @ Y_data @ V_r @ torch.diag(1.0 / s_r)
-        
-        # Compute eigendecomposition of Atilde
+
+        # ---- 1) Basic sanity checks (highly recommended) ----
+        X_data = X_data.contiguous()
+        Y_data = Y_data.contiguous()
+
+        if not torch.isfinite(X_data).all():
+            raise ValueError("X_data contains NaN/Inf before decomposition.")
+        if not torch.isfinite(Y_data).all():
+            raise ValueError("Y_data contains NaN/Inf before decomposition.")
+
+        m, n = X_data.shape
+        min_dim = min(m, n)
+
+        # ---- 2) Choose a safe max rank for low-rank factorization ----
+        # self.svd_rank semantics:
+        #   -1 : no truncation (but for huge matrices we still cap for practicality)
+        #    0 : auto rank (energy-based) -> we still need a max_rank upper bound to compute
+        # (0,1): energy-based -> still need an upper bound
+        #   >0 : fixed rank
+        DEFAULT_MAX_RANK = 512   # adjust if you want (e.g., 256/1024)
+        oversample = 16
+        niter = 2
+
+        if self.svd_rank is None:
+            max_rank = min(DEFAULT_MAX_RANK, min_dim)
+        elif isinstance(self.svd_rank, (int, np.integer)):
+            if self.svd_rank in (-1, 0):
+                max_rank = min(DEFAULT_MAX_RANK, min_dim)
+            else:
+                max_rank = min(int(self.svd_rank), min_dim)
+        elif isinstance(self.svd_rank, float):
+            # energy-based: still compute only up to DEFAULT_MAX_RANK (or min_dim)
+            max_rank = min(DEFAULT_MAX_RANK, min_dim)
+        else:
+            max_rank = min(DEFAULT_MAX_RANK, min_dim)
+
+        q = min(max_rank + oversample, min_dim)
+        if q < 1:
+            raise ValueError(f"q computed as {q}; check your data shape m={m}, n={n} and svd_rank={self.svd_rank}")
+
+        # ---- 3) Low-rank factorization: X ≈ U diag(S) V^T ----
+        # NOTE: center=False is important for standard DMD (no mean subtraction)
+        U, S, V = torch.pca_lowrank(X_data, q=q, center=False, niter=niter)
+        # U: (m, q), S: (q,), V: (n, q)
+
+        # Determine final truncation rank r using available singular values S (length q)
+        r = self._compute_rank(S)
+        r = max(1, min(r, q))  # clamp to [1, q]
+        print("Chosen rank r:", r, "(computed from q =", q, ")")
+
+        U_r = U[:, :r]     # (m, r)
+        S_r = S[:r]        # (r,)
+        V_r = V[:, :r]     # (n, r)
+
+        # Avoid division-by-zero if singular values are tiny
+        eps = 1e-8
+        S_r = torch.clamp(S_r, min=eps)
+
+        # ---- 4) Build Atilde = U_r^T Y V_r Σ_r^{-1} (avoid explicit diag for memory) ----
+        # YVr = Y @ V_r -> (m, r)
+        YVr = Y_data @ V_r                     # (m, r)
+        M = U_r.T @ YVr                        # (r, r)
+        self._Atilde = M / S_r.unsqueeze(0)    # divide each column by S_r
+
+        # ---- 5) Eigendecomposition of Atilde ----
         eigenvalues, W = torch.linalg.eig(self._Atilde)
         self.eigenvalues = eigenvalues
-        
-        # Compute DMD modes
-        # Convert to complex for compatibility with eigenvectors
-        Y_complex = Y_data.to(torch.complex64)
-        V_complex = V_r.to(torch.complex64)
-        s_inv_complex = torch.diag(1.0 / s_r).to(torch.complex64)
-        
-        self.modes = Y_complex @ V_complex @ s_inv_complex @ W
-        
-        # Compute amplitudes using least squares
-        # b = Phi^+ * x0 where Phi^+ is pseudoinverse of modes
-        x0 = X_data[:, 0].to(torch.complex64)
+
+        # ---- 6) DMD modes: Phi = Y V_r Σ_r^{-1} W ----
+        # Phi = (YVr * (1/S_r)) @ W
+        YVr_c = YVr.to(torch.complex64)                       # (m, r)
+        S_inv_c = (1.0 / S_r).to(torch.complex64)             # (r,)
+        Phi = (YVr_c * S_inv_c.unsqueeze(0)) @ W              # (m, r) complex
+        self.modes = Phi
+
+        # ---- 7) Amplitudes b from least squares: Phi b = x0 ----
+        x0 = X_data[:, 0].to(torch.complex64)                 # (m,)
         self.amplitudes = torch.linalg.lstsq(self.modes, x0).solution
-        
-        # Update time info
+
+        # ---- 8) Update time info ----
         self.original_time['tend'] = self.n_snapshots - 1
-        
+
         return self
+
         
     def predict(self, X):
         """

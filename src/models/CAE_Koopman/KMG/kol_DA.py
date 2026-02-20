@@ -27,13 +27,24 @@ from src.utils.Dataset import KolDynamicsDataset
 
 
 def safe_denorm(x: torch.Tensor, dataset: KolDynamicsDataset) -> torch.Tensor:
-    """Denormalize Kolmogorov tensors on CPU."""
-    if isinstance(x, torch.Tensor):
-        x_cpu = x.detach().cpu()
-        mean = dataset.mean.reshape(1, -1, 1, 1)
-        std = dataset.std.reshape(1, -1, 1, 1)
-        return (x_cpu * std + mean).cpu()
-    return x
+    """Denormalize Kolmogorov tensors on CPU. Keep same ndim as input."""
+    if not isinstance(x, torch.Tensor):
+        return x
+
+    x_cpu = x.detach().cpu()
+    mean = torch.as_tensor(dataset.mean, dtype=x_cpu.dtype, device=x_cpu.device)
+    std  = torch.as_tensor(dataset.std,  dtype=x_cpu.dtype, device=x_cpu.device)
+
+    if x_cpu.ndim == 4:          # (B,C,H,W)
+        mean = mean.view(1, -1, 1, 1)
+        std  = std.view(1, -1, 1, 1)
+    elif x_cpu.ndim == 3:        # (C,H,W)
+        mean = mean.view(-1, 1, 1)
+        std  = std.view(-1, 1, 1)
+    else:
+        raise ValueError(f"safe_denorm expects 3D or 4D tensor, got shape {tuple(x_cpu.shape)}")
+
+    return x_cpu * std + mean
 
 
 def compute_metrics(
@@ -54,7 +65,7 @@ def compute_metrics(
         target = groundtruth[step + start_offset]
         da = safe_denorm(da_states[step], dataset)
         noda = safe_denorm(noda_states[step], dataset)
-
+        
         step_mse = []
         step_rrmse = []
         step_ssim = []

@@ -25,7 +25,7 @@ sys.path.append(src_directory)
 from src.utils.Dataset import ERA5HighDataset
 from torch.utils.data import Dataset  # just for type hints if needed
 
-from era5_model import ERA5Encoder, ERA5Decoder
+from era5_high_model import ERA5Encoder, ERA5Decoder
 
 
 class Config:

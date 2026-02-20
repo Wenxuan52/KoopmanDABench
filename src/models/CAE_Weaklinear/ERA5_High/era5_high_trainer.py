@@ -18,7 +18,7 @@ from src.models.CAE_Weaklinear.trainer import (
 
 
 def main():
-    from era5_high_model_FTF import ERA5_C_FORWARD
+    from era5_high_model import ERA5_C_FORWARD
 
     set_seed(42)
     torch.set_default_dtype(torch.float32)

@@ -201,6 +201,8 @@ def stabilise_covariance(
 # -----------------------------------------------------------------------------
 class ProbeSampler:
     def __init__(self, probe_coords: List[Tuple[int, int]], channels: Sequence[int]):
+        probe_coords = [tuple(map(int, xy)) for xy in probe_coords]
+        
         self.coords = list(dict.fromkeys(probe_coords))
         self.channels = list(channels)
         self.dim_u1 = len(self.coords) * len(self.channels)
@@ -434,11 +436,11 @@ def CGFilter(
 # -----------------------------------------------------------------------------
 @torch.no_grad()
 def run_multi_da_experiment(
-    obs_ratio: float = 0.15,
+    obs_ratio: float = 0.02,
     obs_noise_std: float = 0.05,
-    observation_schedule: list = [0, 10, 20],
+    observation_schedule: list = list(range(2+1)),
     observation_variance: float | None = None,
-    window_length: int = 30,
+    window_length: int = 2,
     num_runs: int = 5,
     early_stop_config: Tuple[int, float] = (100, 1e-3),
     start_T: int = 700,

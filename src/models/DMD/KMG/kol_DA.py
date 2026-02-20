@@ -25,13 +25,24 @@ from src.utils.Dataset import KolDynamicsDataset
 
 
 def safe_denorm(x: torch.Tensor, dataset: KolDynamicsDataset) -> torch.Tensor:
-    """Denormalize Kolmogorov tensors on CPU."""
-    if isinstance(x, torch.Tensor):
-        x_cpu = x.detach().cpu()
-        mean = dataset.mean.reshape(1, -1, 1, 1)
-        std = dataset.std.reshape(1, -1, 1, 1)
-        return (x_cpu * std + mean).cpu()
-    return x
+    """Denormalize Kolmogorov tensors on CPU. Keep same ndim as input."""
+    if not isinstance(x, torch.Tensor):
+        return x
+
+    x_cpu = x.detach().cpu()
+    mean = torch.as_tensor(dataset.mean, dtype=x_cpu.dtype, device=x_cpu.device)
+    std  = torch.as_tensor(dataset.std,  dtype=x_cpu.dtype, device=x_cpu.device)
+
+    if x_cpu.ndim == 4:          # (B,C,H,W)
+        mean = mean.view(1, -1, 1, 1)
+        std  = std.view(1, -1, 1, 1)
+    elif x_cpu.ndim == 3:        # (C,H,W)
+        mean = mean.view(-1, 1, 1)
+        std  = std.view(-1, 1, 1)
+    else:
+        raise ValueError(f"safe_denorm expects 3D or 4D tensor, got shape {tuple(x_cpu.shape)}")
+
+    return x_cpu * std + mean
 
 
 def compute_metrics(
@@ -187,7 +198,12 @@ def run_multi_da_experiment(
         set_seed(42 + run_idx)
 
         # ===== 1) 背景（t=1） =====
-        x0 = normalized_groundtruth[0].to(device)
+        x0 = normalized_groundtruth[0].unsqueeze(0).to(device)
+
+        print("x0 shape:", normalized_groundtruth[0].shape)
+        print("numel:", normalized_groundtruth[0].numel())
+        print("modes shape:", dmd_model.modes.shape)
+
         b = executor.encode_state(x0)
         for _ in range(da_start_step):
             b = executor.latent_forward(b).squeeze(0)

@@ -1,6 +1,0 @@
-seq_length: 12
-rank: 0
-
-use_gpu: True
-
-save_folder: "../../../../results/CAE_DMD/Cylinder"

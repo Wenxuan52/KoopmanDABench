@@ -14,7 +14,7 @@ from src.models.CAE_Koopman.trainer import set_seed, train_ms_forward_model, sav
 
 
 def main():
-    from era5_high_model_FTF import ERA5_C_FORWARD
+    from era5_high_model import ERA5_C_FORWARD
 
     set_seed(42)
     torch.set_default_dtype(torch.float32)
@@ -27,8 +27,6 @@ def main():
 
     # Load configuration
     config_path = "../../../../configs/CAE_K_ERA5_HIGH.yaml"
-    if not os.path.exists(config_path):
-        config_path = "../../../../configs/CAE_K_ERA5.yaml"
 
     with open(config_path, 'r') as file:
         config = yaml.safe_load(file)

@@ -152,7 +152,7 @@ DEFAULT_CONFIG: Dict[str, object] = {
     "train_data": "../../../../data/cylinder/cylinder_train_data.npy",
     "val_data": "../../../../data/cylinder/cylinder_val_data.npy",
     "save_folder": "../../../../results/DBF/Cylinder",
-    "batch_size": 6,
+    "batch_size": 64,
     "num_epochs": 200,
     "learning_rate": 1e-4,
     "weight_decay": 1e-5,

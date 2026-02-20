@@ -44,12 +44,12 @@ class Config:
     os.makedirs(out_dir, exist_ok=True)
 
     # Data / time
-    seq_length = 12          # 每个子序列长度，必须 >= s2_long_steps
+    seq_length = 50          # 每个子序列长度，必须 >= s2_long_steps
     dt = 0.001                  # 真实物理Δt，或用1.0代表一帧
     train_split = 0.8
 
     # Observations (u1): ratio-based
-    obs_ratio = 0.02          # 比率，例如 1% 像素作为观测点
+    obs_ratio = 0.15          # 比率，例如 1% 像素作为观测点
     obs_layout = "random"    # "uniform" 或 "random"
     min_spacing = 4           # random 模式下的最小像素间距
     save_probe_coords = True
@@ -62,18 +62,18 @@ class Config:
     # Training
     device = "cuda" if torch.cuda.is_available() else "cpu"
     seed = 42
-    bs = 16
+    bs = 64
     num_workers = 4
 
     # Stage 1 (short forecast)
-    s1_epochs = 50
+    s1_epochs = 100
     s1_short_steps = 6
-    s1_lr = 1e-4
+    s1_lr = 5e-4
 
     # Stage 2 (add DA)
-    s2_epochs = 20
+    s2_epochs = 50
     s2_short_steps = 6
-    s2_long_steps = 12       # DA 窗口长度，必须 <= seq_length
+    s2_long_steps = 20       # DA 窗口长度，必须 <= seq_length
     s2_cut_warmup = 5
     s2_lr = 1e-3
 

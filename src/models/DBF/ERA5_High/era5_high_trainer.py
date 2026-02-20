@@ -21,7 +21,7 @@ src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", ".."
 sys.path.append(src_directory)
 
 from src.utils.Dataset import ERA5HighDataset
-from src.models.DBF.ERA5.era5_model import ERA5Decoder
+from src.models.DBF.ERA5_High.era5_high_model import ERA5Decoder
 
 
 def set_seed(seed: int) -> None:
@@ -145,7 +145,7 @@ class SpectralKoopmanOperator(nn.Module):
 
 DEFAULT_CONFIG: Dict[str, object] = {
     "seed": 42,
-    "seq_length": 64,
+    "seq_length": 10,
     "mask_rate": 0.05,
     "mask_seed": 1024,
     "latent_dim": 512,

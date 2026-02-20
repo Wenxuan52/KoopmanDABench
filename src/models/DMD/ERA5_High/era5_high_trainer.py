@@ -87,14 +87,6 @@ def get_memory_usage():
     return "CPU mode"
 
 
-def visualize(data, save_path="temp.png"):
-    plt.figure(figsize=(6, 3))
-    plt.imshow(data, cmap='viridis')
-    plt.axis('off')
-    plt.savefig(save_path, bbox_inches='tight', dpi=100)
-    plt.close()
-
-
 def main():
     start_time = time.time()
 
@@ -174,8 +166,6 @@ def main():
     print("[INFO] Fitting DMD model...")
 
     sample_index = min(1000, X_train.shape[1] - 1)
-    temp_image = X_train[:, sample_index].reshape(5, 240, 121)
-    visualize(temp_image[0].cpu().numpy())
 
     dmd.fit(X_train, y_train)
 
