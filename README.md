@@ -34,26 +34,6 @@ This repository aims to provide a clean, extensible, and reproducible codebase f
 └── CONTRIBUTING.md
 ````
 
-### Notes on each folder
-
-* `src/models/`
-  Contains **all baselines**. Each baseline maintains dataset-specific training and DA code under:
-  `src/models/{model_name}/{DATASET_NAME}/`.
-
-* `src/assimilation/`
-  Contains **unified DA tasks for each dataset**.
-  For each dataset, there are two DA tasks:
-
-  1. **Single-window DA** (fixed assimilation window length)
-  2. **Intermittent / repeated DA** (fixed window length + assimilation interval)
-
-* `src/plot/`
-  Provides visualization scripts for inspecting results, trajectories, fields, etc.
-
-* `src/main.py`
-  The **core training entry**. It dispatches to the corresponding trainer implementation by
-  switching into the proper directory and launching the correct training script for the chosen `(dataset, model)` pair.
-
 ---
 
 ## Installation
