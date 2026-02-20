@@ -32,7 +32,6 @@ DATASET_DIR_MAP = {
     "kol": "KMG",
     "kolmogorov": "KMG",
     "cylinder": "Cylinder",
-    "dam": "Dam",
 }
 
 DATASET_TRAINER_MAP = {
@@ -42,7 +41,6 @@ DATASET_TRAINER_MAP = {
     "kol": "kol_trainer.py",
     "kolmogorov": "kol_trainer.py",
     "cylinder": "cylinder_trainer.py",
-    "dam": "dam_trainer.py",
 }
 
 

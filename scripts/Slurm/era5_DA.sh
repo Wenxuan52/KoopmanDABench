@@ -15,13 +15,13 @@ conda activate koopmanda
 
 # Cylinder / Dam / ERA5
 # DMD / CAE_Koopman / CAE_Linear / CAE_Weaklinear / CAE_MLP / discreteCGKN / CGKN / DBF
-cd src/models/CGKN/ERA5
+# cd src/models/CGKN/ERA5
 
-python era5_DA.py
+# python era5_DA.py
 
-# cd src/assimilation/
+cd src/assimilation/
 
-# python era5_full_observation.py
+python era5_intermittent_observation.py
 
 # era5_full_observation.py
 # era5_intermittent_observation.py
