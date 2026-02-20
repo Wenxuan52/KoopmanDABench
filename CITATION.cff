@@ -1,0 +1,40 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata from this file."
+title: "Koopman DA Benchmark"
+type: software
+
+authors:
+  - family-names: "Wenxuan"
+    given-names: "Yuan"
+
+version: "0.1.0"
+date-released: "2026-02-20"
+
+url: "https://github.com/Wenxuan52/KoopmanDABench"
+repository-code: "https://github.com/Wenxuan52/KoopmanDABench"
+
+license: "MIT"
+
+keywords:
+  - "data assimilation"
+  - "Koopman operator"
+  - "benchmark"
+  - "dynamical systems"
+  - "ERA5"
+  - "machine learning"
+
+preferred-citation:
+  type: software
+  title: "Koopman DA Benchmark"
+  authors:
+    - family-names: "Wenxuan"
+      given-names: "Yuan"
+  version: "0.1.0"
+  date-released: "2026-02-20"
+  url: "https://github.com/Wenxuan52/KoopmanDABench"
+  repository-code: "https://github.com/Wenxuan52/KoopmanDABench"
+  license: "MIT"
+
+contact:
+  - name: "Wenxuan"
+    email: "wenxuan.yuan@qq.com"
