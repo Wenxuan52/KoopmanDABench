@@ -104,6 +104,8 @@ def compute_value_ranges(groundtruth: np.ndarray, preds_da: dict, preds_bg: dict
     """
     vmin_main, vmax_main = [], []
     vmin_err, vmax_err = [], []
+    output_paths = []
+
     for ch in range(5):
         main_values = [groundtruth[:, ch]]
         for pred in preds_da.values():
@@ -178,6 +180,8 @@ def make_era5_da_gif_separate(
     def is_background_row(row: int) -> bool:
         # Row 2/3 correspond to pure rollout (background)
         return row in (2, 3)
+
+    output_paths = []
 
     for ch in range(5):
         fig, axes = plt.subplots(
@@ -326,6 +330,9 @@ def make_era5_da_gif_separate(
 
         plt.close(fig)
         print(f"GIF saved to {out_path}")
+        output_paths.append(out_path)
+
+    return output_paths
 
 
 if __name__ == "__main__":
