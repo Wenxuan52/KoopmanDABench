@@ -103,7 +103,6 @@ def preprocess_weatherbench(data_path):
 #     test data shape: (1460, 64, 32, 1)
 #     train data shape : (1460, 64, 32, 1)
 #     """
-#     # TODO: change to desired time and resolution
 #     GCP_PATH = 'gs://weatherbench2/datasets/era5/1959-2022-6h-64x32_equiangular_with_poles_conservative.zarr'
 
 #     # Load in the data
