@@ -37,8 +37,6 @@ results/Comparison/figures/era5_da_interobs_channel0.gif
 *.err
 *.out
 
-saved_models/
-
 .ipynb_checkpoints/
 
 *.log
