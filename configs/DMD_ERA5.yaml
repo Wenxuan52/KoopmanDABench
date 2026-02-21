@@ -1,7 +1,0 @@
-# Model parameters
-rank: 512
-seq_length: 10
-
-use_gpu: True
-
-save_folder: "../../../../results/DMD/ERA5"  # Where to save results
