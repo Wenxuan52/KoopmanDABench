@@ -1,4 +1,4 @@
-save_folder: '../../../../results/CAE_MLP/ERA5/tmp'
+save_folder: '../../../../results/AE/ERA5/tmp'
 seq_length: 10
 num_epochs: 5
 decay_step: 20

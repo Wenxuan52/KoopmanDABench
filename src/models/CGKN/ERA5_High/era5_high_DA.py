@@ -1,8 +1,8 @@
 """
-Data assimilation experiments for CGKN on ERA5 high-resolution data, aligned with the CAE_Linear workflow.
+Data assimilation experiments for CGKN on ERA5 high-resolution data, aligned with the KAE workflow.
 
 This script mirrors the interface, saving structure, and metric computation of
-``src/models/CAE_Linear/ERA5_High/era5_high_DA.py`` while reusing the analytic CGFilter
+``src/models/KAE/ERA5_High/era5_high_DA.py`` while reusing the analytic CGFilter
 logic from the ERA5 CGKN training script.
 """
 
@@ -450,7 +450,7 @@ def CGFilter(
 
 
 # -----------------------------------------------------------------------------
-# Assimilation runner (mirrors CAE_Linear interface)
+# Assimilation runner (mirrors KAE interface)
 # -----------------------------------------------------------------------------
 @torch.no_grad()
 def run_multi_da_experiment(

@@ -99,10 +99,10 @@ def run_all_models():
 
     repo_root = Path(__file__).resolve().parents[2]
     models: Dict[str, Dict[str, object]] = {
-        "CAE_Koopman": {"module": "src.models.CAE_Koopman.Cylinder.cylinder_DA", "supports_prefix": True},
-        "CAE_Linear": {"module": "src.models.CAE_Linear.Cylinder.cylinder_DA", "supports_prefix": True},
-        "CAE_Weaklinear": {"module": "src.models.CAE_Weaklinear.Cylinder.cylinder_DA", "supports_prefix": True},
-        "CAE_MLP": {"module": "src.models.CAE_MLP.Cylinder.cylinder_DA", "supports_prefix": True},
+        "KKR": {"module": "src.models.KKR.Cylinder.cylinder_DA", "supports_prefix": True},
+        "KAE": {"module": "src.models.KAE.Cylinder.cylinder_DA", "supports_prefix": True},
+        "WAE": {"module": "src.models.WAE.Cylinder.cylinder_DA", "supports_prefix": True},
+        "AE": {"module": "src.models.AE.Cylinder.cylinder_DA", "supports_prefix": True},
         "DMD": {"module": "src.models.DMD.Cylinder.cylinder_DA", "supports_prefix": True},
         "CGKN": {"module": "src.models.CGKN.Cylinder.cylinder_DA", "supports_prefix": True},
         "DBF": {"module": "src.models.DBF.Cylinder.cylinder_DA", "supports_prefix": True},

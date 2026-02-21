@@ -1,4 +1,4 @@
-save_folder: '../../../../results/CAE_Linear/KMG/3loss_model'
+save_folder: '../../../../results/KAE/KMG/3loss_model'
 seq_length: 12
 num_epochs: 100
 decay_step: 20

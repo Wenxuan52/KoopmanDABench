@@ -14,7 +14,7 @@ source /scratch_root/wy524/miniconda3/etc/profile.d/conda.sh
 conda activate koopmanda
 
 # ERA5_High
-# DMD / CAE_Koopman / CAE_Linear / CAE_Weaklinear / CAE_MLP / discreteCGKN / CGKN / DBF
+# DMD / KKR / KAE / WAE / AE / discreteCGKN / CGKN / DBF
 cd src/models/DBF/ERA5_High
 
 python era5_high_trainer.py

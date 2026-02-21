@@ -99,10 +99,10 @@ def run_all_models():
 
     repo_root = Path(__file__).resolve().parents[2]
     models: Dict[str, Dict[str, object]] = {
-        "CAE_Koopman": {"module": "src.models.CAE_Koopman.KMG.kol_DA", "supports_prefix": True},
-        "CAE_Linear": {"module": "src.models.CAE_Linear.KMG.kol_DA", "supports_prefix": True},
-        "CAE_Weaklinear": {"module": "src.models.CAE_Weaklinear.KMG.kol_DA", "supports_prefix": True},
-        "CAE_MLP": {"module": "src.models.CAE_MLP.KMG.kol_DA", "supports_prefix": True},
+        "KKR": {"module": "src.models.KKR.KMG.kol_DA", "supports_prefix": True},
+        "KAE": {"module": "src.models.KAE.KMG.kol_DA", "supports_prefix": True},
+        "WAE": {"module": "src.models.WAE.KMG.kol_DA", "supports_prefix": True},
+        "AE": {"module": "src.models.AE.KMG.kol_DA", "supports_prefix": True},
         "DMD": {"module": "src.models.DMD.KMG.kol_DA", "supports_prefix": True},
         "CGKN": {"module": "src.models.CGKN.KMG.kol_DA", "supports_prefix": True},
         "DBF": {"module": "src.models.DBF.KMG.kol_DA", "supports_prefix": True},

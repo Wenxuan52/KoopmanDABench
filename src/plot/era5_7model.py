@@ -127,10 +127,10 @@ def plot_era5_rollout_metrics(metric_paths, labels=None, save_dir="../../results
 if __name__ == "__main__":
     metric_paths = [
         "../../results/DMD/figures/metrics_era5_forward.npz",
-        "../../results/CAE_Koopman/figures/metrics_era5_forward.npz",
-        "../../results/CAE_Linear/figures/metrics_era5_forward.npz",
-        "../../results/CAE_Weaklinear/figures/metrics_era5_forward.npz",
-        "../../results/CAE_MLP/figures/metrics_era5_forward.npz",
+        "../../results/KKR/figures/metrics_era5_forward.npz",
+        "../../results/KAE/figures/metrics_era5_forward.npz",
+        "../../results/WAE/figures/metrics_era5_forward.npz",
+        "../../results/AE/figures/metrics_era5_forward.npz",
         "../../results/CGKN/figures/metrics_era5_forward.npz",
         "../../results/DBF/figures/metrics_era5_forward.npz",
     ]

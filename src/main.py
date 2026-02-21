@@ -1,7 +1,7 @@
 """Unified training entry point for model/dataset combinations.
 
 Example:
-    python src/main.py --dataset era5 --model CAE_Koopman
+    python src/main.py --dataset era5 --model KKR
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ DATASET_TRAINER_MAP = {
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run a model trainer on a selected dataset")
     parser.add_argument("--dataset", required=True, help="Dataset name, e.g. era5, kmg, cylinder")
-    parser.add_argument("--model", required=True, help="Model name under src/models, e.g. CAE_Koopman")
+    parser.add_argument("--model", required=True, help="Model name under src/models, e.g. KKR")
     parser.add_argument(
         "--dry-run",
         action="store_true",

@@ -1,4 +1,4 @@
-save_folder: '../../../../results/CAE_Koopman/Dam/model_weights_L512'
+save_folder: '../../../../results/KKR/Dam/model_weights_L512'
 seq_length: 12
 num_epochs: 100
 decay_step: 20

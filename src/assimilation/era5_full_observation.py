@@ -120,10 +120,10 @@ def run_all_models():
 
     repo_root = Path(__file__).resolve().parents[2]
     models: Dict[str, Dict[str, object]] = {
-        "CAE_Koopman": {"module": "src.models.CAE_Koopman.ERA5.era5_DA", "supports_prefix": True},
-        "CAE_Linear": {"module": "src.models.CAE_Linear.ERA5.era5_DA", "supports_prefix": True},
-        "CAE_Weaklinear": {"module": "src.models.CAE_Weaklinear.ERA5.era5_DA", "supports_prefix": True},
-        "CAE_MLP": {"module": "src.models.CAE_MLP.ERA5.era5_DA", "supports_prefix": True},
+        "KKR": {"module": "src.models.KKR.ERA5.era5_DA", "supports_prefix": True},
+        "KAE": {"module": "src.models.KAE.ERA5.era5_DA", "supports_prefix": True},
+        "WAE": {"module": "src.models.WAE.ERA5.era5_DA", "supports_prefix": True},
+        "AE": {"module": "src.models.AE.ERA5.era5_DA", "supports_prefix": True},
         "DMD": {"module": "src.models.DMD.ERA5.era5_DA", "supports_prefix": True},
         # "discreteCGKN": {"module": "src.models.discreteCGKN.ERA5.era5_DA", "supports_prefix": True},
         "CGKN": {"module": "src.models.CGKN.ERA5.era5_DA", "supports_prefix": True},

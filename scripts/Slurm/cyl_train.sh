@@ -14,7 +14,7 @@ source /scratch_root/wy524/miniconda3/etc/profile.d/conda.sh
 conda activate koopmanda
 
 # Cylinder
-# DMD / CAE_Koopman / CAE_Linear / CAE_Weaklinear / CAE_MLP / discreteCGKN / CGKN / DBF
+# DMD / KKR / KAE / WAE / AE / discreteCGKN / CGKN / DBF
 cd src/models/CGKN/Cylinder
 
 python cylinder_trainer.py

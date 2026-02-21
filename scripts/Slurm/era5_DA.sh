@@ -13,8 +13,8 @@
 source /scratch_root/wy524/miniconda3/etc/profile.d/conda.sh
 conda activate koopmanda
 
-# Cylinder / Dam / ERA5
-# DMD / CAE_Koopman / CAE_Linear / CAE_Weaklinear / CAE_MLP / discreteCGKN / CGKN / DBF
+# ERA5
+# DMD / KKR / KAE / WAE / AE / discreteCGKN / CGKN / DBF
 # cd src/models/CGKN/ERA5
 
 # python era5_DA.py

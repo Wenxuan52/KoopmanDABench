@@ -54,10 +54,10 @@ METRIC_KEYS: List[Tuple[str, str]] = [
 # Models to compare (name, relative results path from repo root)
 # We will inject SAVE_PREFIX before "multi_meanstd.npz" and "time_info.npz".
 MODEL_SPECS: List[Tuple[str, Path]] = [
-    ("CAE_Koopman", Path("results/CAE_Koopman/ERA5/DA/multi_meanstd.npz")),
-    ("CAE_Linear", Path("results/CAE_Linear/ERA5/DA/multi_meanstd.npz")),
-    ("CAE_Weaklinear", Path("results/CAE_Weaklinear/ERA5/DA/multi_meanstd.npz")),
-    ("CAE_MLP", Path("results/CAE_MLP/ERA5/DA/multi_meanstd.npz")),
+    ("KKR", Path("results/KKR/ERA5/DA/multi_meanstd.npz")),
+    ("KAE", Path("results/KAE/ERA5/DA/multi_meanstd.npz")),
+    ("WAE", Path("results/WAE/ERA5/DA/multi_meanstd.npz")),
+    ("AE", Path("results/AE/ERA5/DA/multi_meanstd.npz")),
     ("DMD", Path("results/DMD/ERA5/DA/multi_meanstd.npz")),
     ("CGKN", Path("results/CGKN/ERA5/DA/multi_meanstd.npz")),
     ("DBF", Path("results/DBF/ERA5/DA/multi_meanstd.npz")),

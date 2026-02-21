@@ -92,7 +92,7 @@ python src/main.py --dataset <dataset> --model <model>
 Example:
 
 ```bash
-python src/main.py --dataset ERA5 --model CAE_Koopman
+python src/main.py --dataset ERA5 --model KKR
 ```
 
 `src/main.py` will dispatch to:

@@ -32,7 +32,7 @@ if src_directory not in sys.path:
 from src.utils.Dataset import ERA5Dataset  # noqa: E402
 from src.models.discreteCGKN.ERA5.era5_model import ERA5Decoder, ERA5Encoder  # noqa: E402
 from src.models.discreteCGKN.ERA5.era5_train import DiscreteCGN, ProbeSampler  # noqa: E402
-from src.models.CAE_Koopman.ERA5.era5_model import ERA5_settings  # noqa: E402
+from src.models.KKR.ERA5.era5_model import ERA5_settings  # noqa: E402
 
 
 def _tensor_summary(name: str, tensor: torch.Tensor) -> str:
@@ -607,6 +607,6 @@ def main():
 
 
 if __name__ == "__main__":
-    from src.models.CAE_Koopman.ERA5.era5_model import ERA5_settings
+    from src.models.KKR.ERA5.era5_model import ERA5_settings
 
     main()

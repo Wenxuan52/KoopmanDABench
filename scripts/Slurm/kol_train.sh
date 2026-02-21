@@ -13,8 +13,8 @@
 source /scratch_root/wy524/miniconda3/etc/profile.d/conda.sh
 conda activate koopmanda
 
-# Cylinder / KMG / ERA5
-# DMD / CAE_Koopman / CAE_Linear / CAE_Weaklinear / CAE_MLP / discreteCGKN / CGKN / DBF
+# KMG
+# DMD / KKR / KAE / WAE / AE / discreteCGKN / CGKN / DBF
 cd src/models/CGKN/KMG
 
 python kol_trainer.py

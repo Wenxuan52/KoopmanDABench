@@ -17,10 +17,10 @@ from src.utils.Dataset import ERA5Dataset
 # Config
 # -------------------------
 MODEL_MAP = {
-    "Koopman": "CAE_Koopman",
-    "Linear": "CAE_Linear",
-    "Weaklinear": "CAE_Weaklinear",
-    "MLP": "CAE_MLP",
+    "Koopman": "KKR",
+    "Linear": "KAE",
+    "Weaklinear": "WAE",
+    "MLP": "AE",
     "DMD": "DMD",
     "DBF": "DBF",
     "CGKN": "CGKN",

@@ -6,7 +6,7 @@ The assimilation loop follows the convention used across the benchmark:
 - The observation schedule is defined on **assimilation steps** such that
   ``step=0`` corresponds to assimilating the observation at physical time ``t=1``.
   Therefore ``step=k`` maps to ``t=k+1`` in the trajectory. This mirrors the
-  CAE_Linear evaluation workflow.
+  KAE evaluation workflow.
 
 Pipeline summary
 ----------------
@@ -24,7 +24,7 @@ Pipeline summary
 4) A no-DA baseline uses the same initialization (posterior at t=0) but only
    propagates predictions without further updates.
 
-Outputs match CAE_Linear evaluation format:
+Outputs match KAE evaluation format:
 - Save the first DA trajectory (denormalized) to ``.../DA/multi.npy`` with shape
   ``[window_length, C, H, W]`` corresponding to times ``t=1..window_length``.
 - Save mean/std metrics across runs to ``.../DA/multi_meanstd.npz`` with ``steps``

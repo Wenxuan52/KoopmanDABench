@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from src.models.CAE_Koopman.ERA5_High.era5_high_model import (
+from src.models.KKR.ERA5_High.era5_high_model import (
     ERA5_K_S,
     ERA5_K_S_preimage,
     ERA5_settings,

@@ -1,4 +1,4 @@
-save_folder: '../../../../results/CAE_Koopman/ERA5_High/3loss_model'
+save_folder: '../../../../results/KKR/ERA5_High/3loss_model'
 seq_length: 10
 num_epochs: 100
 decay_step: 10

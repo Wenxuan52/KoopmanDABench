@@ -17,7 +17,7 @@ src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", ".."
 sys.path.append(src_directory)
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib_config")
 
-from src.models.CAE_Koopman.KMG.kol_model import (
+from src.models.KKR.KMG.kol_model import (
     KOL_K_S,
     KOL_K_S_preimage,
     KOL_settings,

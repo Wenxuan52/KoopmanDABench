@@ -39,7 +39,7 @@ sys.path.append(src_directory)
 
 from src.utils.Dataset import ERA5Dataset  # noqa: E402
 from src.models.discreteCGKN.ERA5.era5_model import ERA5Decoder, ERA5Encoder  # noqa: E402
-from src.models.CAE_Koopman.ERA5.era5_model import ERA5_settings  # noqa: E402
+from src.models.KKR.ERA5.era5_model import ERA5_settings  # noqa: E402
 
 
 def set_seed(seed: int) -> None:

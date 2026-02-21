@@ -1,5 +1,5 @@
 train_mode: 'jointly'
-jointly_save_folder: '../../../../results/CAE_MLP/Cylinder/4loss_model'
+jointly_save_folder: '../../../../results/AE/Cylinder/4loss_model'
 seq_length: 16
 S1_epochs: 300
 S2_epochs: 80
