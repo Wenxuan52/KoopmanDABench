@@ -21,7 +21,7 @@ conda activate koopmanda
 
 cd src/assimilation/
 
-python era5_intermittent_observation.py
+python era5_full_observation.py
 
 # era5_full_observation.py
 # era5_intermittent_observation.py

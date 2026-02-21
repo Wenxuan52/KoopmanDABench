@@ -108,7 +108,7 @@ def run_all_models(
     obs_noise_std: float = 0.00,
     observation_schedule: Sequence[int] | None = None,
     observation_variance: float | None = None,
-    window_length: int = 10,
+    window_length: int = 4,
     num_runs: int = 5,
     start_T: int = 0,
     save_prefix: str = SAVE_PREFIX,
