@@ -310,6 +310,7 @@ def make_spatial_power_spectrum_grid(
     fig.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
     print(f"[OK] Saved: {out_path}")
+    return out_path
 
 
 if __name__ == "__main__":

@@ -103,19 +103,32 @@ def summarize_metrics(metrics: Sequence[Dict[str, float]]) -> Dict[str, float]:
     return {"mse": mse_mean, "rrmse": rrmse_mean, "ssim": ssim_mean}
 
 
-def run_all_models():
-    """Run data assimilation for all supported models with shared settings."""
+def run_all_models(
+    obs_ratio: float = 0.15,
+    obs_noise_std: float = 0.00,
+    observation_schedule: Sequence[int] | None = None,
+    observation_variance: float | None = None,
+    window_length: int = 10,
+    num_runs: int = 5,
+    start_T: int = 0,
+    save_prefix: str = SAVE_PREFIX,
+):
+    """Run data assimilation for all supported models with shared settings.
 
-    window_length = 10
-    observation_schedule = list(range(window_length))
+    Returns a dict keyed by model name with paths/metrics when available.
+    """
+
+    if observation_schedule is None:
+        observation_schedule = list(range(window_length))
+
     experiment_config = {
-        "obs_ratio": 0.15,
-        "obs_noise_std": 0.00,
-        "observation_schedule": observation_schedule,
-        "observation_variance": None,
+        "obs_ratio": obs_ratio,
+        "obs_noise_std": obs_noise_std,
+        "observation_schedule": list(observation_schedule),
+        "observation_variance": observation_variance,
         "window_length": window_length,
-        "num_runs": 5,
-        "start_T": 0,
+        "num_runs": num_runs,
+        "start_T": start_T,
     }
 
     repo_root = Path(__file__).resolve().parents[2]
@@ -135,6 +148,8 @@ def run_all_models():
         start_T=experiment_config["start_T"],
     )
 
+    summary: Dict[str, Dict[str, object]] = {}
+
     for model_name, info in models.items():
         model_dir = repo_root / "src" / "models" / model_name / "ERA5"
 
@@ -148,7 +163,7 @@ def run_all_models():
             module = importlib.import_module(info["module"])
             run_kwargs = dict(experiment_config)
             if info.get("supports_prefix"):
-                run_kwargs["save_prefix"] = SAVE_PREFIX
+                run_kwargs["save_prefix"] = save_prefix
             try:
                 time_info = module.run_multi_da_experiment(model_name=model_name, **run_kwargs)
             except Exception as exc:
@@ -160,7 +175,7 @@ def run_all_models():
         print(f"{model_name} total wall time: {elapsed:.2f}s")
 
         result_dir = repo_root / "results" / model_name / "ERA5" / "DA"
-        prefix = SAVE_PREFIX if info.get("supports_prefix") else ""
+        prefix = save_prefix if info.get("supports_prefix") else ""
         multi_path = result_dir / f"{prefix}multi.npy"
         if not multi_path.exists():
             print(f"{multi_path} not found; unable to compute metrics.")
@@ -189,6 +204,15 @@ def run_all_models():
             f"Average: MSE={aggregate['mse']:.6f}, "
             f"RRMSE={aggregate['rrmse']:.6f}, SSIM={aggregate['ssim']:.6f}"
         )
+
+        summary[model_name] = {
+            "multi_path": str(multi_path),
+            "metrics": metrics,
+            "aggregate": aggregate,
+            "save_prefix": prefix,
+        }
+
+    return summary
 
 
 if __name__ == "__main__":

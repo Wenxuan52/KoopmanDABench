@@ -274,7 +274,7 @@ def build_comparison_figure(
     model_data: Dict[str, Dict[str, np.ndarray]],
     output_path: Path,
     observation_schedule: Optional[Sequence[int]] = None,
-) -> None:
+) -> plt.Figure:
     fig, axes = plt.subplots(
         nrows=len(CHANNEL_LABELS),
         ncols=len(METRIC_KEYS),
@@ -339,14 +339,15 @@ def build_comparison_figure(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=300, bbox_inches="tight")
     print(f"Saved comparison figure to {output_path}")
+    return fig
 
 
-def main() -> None:
+def main() -> Optional[Path]:
     repo_root = Path(__file__).resolve().parents[2]
     model_data = load_model_metrics(repo_root, prefix=SAVE_PREFIX)
     if not model_data:
         print("No metrics found; aborting plot generation.")
-        return
+        return None
 
     model_names = list(model_data.keys())
 
@@ -365,11 +366,13 @@ def main() -> None:
     suffix = SAVE_PREFIX if SAVE_PREFIX else "default_"
     output_path = figures_dir / f"{suffix}era5_DA_comparison.png"
 
-    build_comparison_figure(
+    fig = build_comparison_figure(
         model_data=model_data,
         output_path=output_path,
         observation_schedule=obs_schedule_to_draw,
     )
+    plt.close(fig)
+    return output_path
 
 
 if __name__ == "__main__":
