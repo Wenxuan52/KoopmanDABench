@@ -22,7 +22,7 @@ src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", ".."
 sys.path.append(src_directory)
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib_config")
 
-from src.models.CAE_Koopman.ERA5.era5_model_FTF import ERA5_C_FORWARD
+from src.models.CAE_Koopman.ERA5.era5_model import ERA5_C_FORWARD
 from src.models.CAE_Koopman.dabase import (
     KoopmanDAExecutor,
     UnifiedDynamicSparseObservationHandler,

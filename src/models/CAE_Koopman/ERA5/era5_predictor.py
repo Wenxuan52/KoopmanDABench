@@ -320,7 +320,7 @@ def compute_era5_temporal_metrics(groundtruth, rollout):
 
 
 if __name__ == '__main__':
-    from era5_model_FTF import ERA5_C_FORWARD  # You need to import your ERA5 model
+    from era5_model import ERA5_C_FORWARD  # You need to import your ERA5 model
 
     fig_save_path = '../../../../results/CAE_Koopman/figures/'
     

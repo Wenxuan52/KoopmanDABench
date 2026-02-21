@@ -23,7 +23,7 @@ from src.models.CAE_Koopman.trainer import set_seed, train_ms_forward_model, sav
 
 def main():
     # from kol_model import KOL_C_FORWARD
-    from kol_model_FTF import KOL_C_FORWARD
+    from kol_model import KOL_C_FORWARD
 
     set_seed(42)
     torch.set_default_dtype(torch.float32)

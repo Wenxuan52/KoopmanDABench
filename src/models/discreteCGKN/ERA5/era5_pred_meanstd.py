@@ -199,7 +199,7 @@ def main():
 
     dim_z = raw_data.shape[-1]  # fallback, overwritten below if settings exist
     try:
-        from src.models.CAE_Koopman.ERA5.era5_model_FTF import ERA5_settings
+        from src.models.CAE_Koopman.ERA5.era5_model import ERA5_settings
 
         dim_z = ERA5_settings["state_feature_dim"][-1]
     except Exception:

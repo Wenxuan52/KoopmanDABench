@@ -186,7 +186,7 @@ def compute_temporal_metrics(groundtruth, reconstruction, onestep, rollout):
 
 if __name__ == '__main__':
     # from kol_model import KOL_C_FORWARD
-    from kol_model_FTF import KOL_C_FORWARD
+    from kol_model import KOL_C_FORWARD
 
     fig_save_path = '../../../../results/CAE_DMD/figures/'
 

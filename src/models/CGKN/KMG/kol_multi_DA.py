@@ -26,7 +26,7 @@ sys.path.append(src_directory)
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib_config")
 
 from src.utils.Dataset import KolDynamicsDataset
-from src.models.CAE_Koopman.KMG.kol_model_FTF import KOL_settings
+from src.models.CAE_Koopman.KMG.kol_model import KOL_settings
 from src.models.CGKN.KMG.kol_DA import (
     CGFilter,
     CGKN_ODE,

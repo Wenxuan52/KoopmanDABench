@@ -28,7 +28,7 @@ from src.utils.Dataset import KolDynamicsDataset
 from torch.utils.data import Dataset  # just for type hints if needed
 
 # === PREP FOR CAE-ROM ===
-from src.models.CAE_Koopman.KMG.kol_model_FTF import (
+from src.models.CAE_Koopman.KMG.kol_model import (
     KOL_K_S,
     KOL_K_S_preimage,
     KOL_settings,

@@ -8,7 +8,7 @@ import torch
 from skimage.metrics import structural_similarity as ssim
 from tqdm import tqdm
 
-from era5_model_FTF import ERA5_C_FORWARD
+from era5_model import ERA5_C_FORWARD
 
 # Register project root
 current_directory = os.getcwd()

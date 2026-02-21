@@ -21,7 +21,7 @@ src_directory = os.path.abspath(os.path.join(current_directory, "..", "..", ".."
 sys.path.append(src_directory)
 
 from src.utils.Dataset import KolDynamicsDataset
-from src.models.CAE_Koopman.KMG.kol_model_FTF import KOL_K_S_preimage, KOL_settings
+from src.models.CAE_Koopman.KMG.kol_model import KOL_K_S_preimage, KOL_settings
 
 
 def set_seed(seed: int) -> None:
