@@ -4,11 +4,12 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 from einops import rearrange, repeat
+from src.models.CAE_Weaklinear.base import *
 
-import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from base import *
+# import sys
+# import os
+# sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# from base import *
 
 # State dimension = 1 channel (vorticity), 256x256 resolution for Kolmogorov flow
 KOL_settings = {"obs_dim": [1, 256, 256], 
