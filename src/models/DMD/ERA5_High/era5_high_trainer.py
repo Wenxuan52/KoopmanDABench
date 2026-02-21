@@ -94,12 +94,11 @@ def main():
     torch.set_default_dtype(torch.float32)
 
     # Load configuration
-    config_path = "../../../../configs/DMD_ERA5_HIGH.yaml"
-    if not os.path.exists(config_path):
-        config_path = "../../../../configs/DMD_ERA5.yaml"
+    config_path = "../../../../configs/DMD.yaml"
 
     with open(config_path, 'r') as file:
         config = yaml.safe_load(file)
+    config = config["ERA5_High"]
 
     # Device setup
     if config.get('use_gpu', False) and torch.cuda.is_available():

@@ -1,13 +1,13 @@
-import argparse
 import copy
 import json
 import math
 import os
 import random
 import sys
-from typing import Dict, Optional
+from typing import Dict
 
 import numpy as np
+import yaml
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -200,21 +200,11 @@ def deep_update(base: Dict, updates: Dict) -> Dict:
     return base
 
 
-def load_config(path: Optional[str]) -> Dict[str, object]:
+def load_config() -> Dict[str, object]:
     config = copy.deepcopy(DEFAULT_CONFIG)
-    if not path:
-        return config
-    _, ext = os.path.splitext(path)
-    ext = ext.lower()
-    with open(path, "r") as handle:
-        if ext == ".json":
-            user_cfg = json.load(handle)
-        elif ext in {".yml", ".yaml"}:
-            import yaml
-
-            user_cfg = yaml.safe_load(handle)
-        else:
-            raise ValueError(f"Unsupported config extension: {ext}")
+    config_path = "../../../../configs/DBF.yaml"
+    with open(config_path, "r") as handle:
+        user_cfg = yaml.safe_load(handle)["Kolmogorov"]
     return deep_update(config, user_cfg or {})
 
 
@@ -544,11 +534,7 @@ class KMGDBFTrainer:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="KMG DBF Trainer")
-    parser.add_argument("--config", type=str, default=None, help="Path to config file (JSON or YAML)")
-    args = parser.parse_args()
-
-    config = load_config(args.config)
+    config = load_config()
     trainer = KMGDBFTrainer(config)
     trainer.run()
 

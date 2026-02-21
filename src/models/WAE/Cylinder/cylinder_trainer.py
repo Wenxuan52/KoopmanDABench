@@ -30,9 +30,10 @@ def main():
         print(f"[INFO] {torch.cuda.get_device_properties(0)}")
 
     # Load configuration
-    config_path = "../../../../configs/CAE_Weaklinear_CYL.yaml"
+    config_path = "../../../../configs/WAE.yaml"
     with open(config_path, 'r') as file:
         config = yaml.safe_load(file)
+    config = config["Cylinder"]
     
     print("[INFO] Starting Cylinder Flow Model Training")
     print(f"[INFO] Configuration: {config}")

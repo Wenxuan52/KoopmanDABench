@@ -1,0 +1,126 @@
+Cylinder:
+  seed: 42
+  seq_length: 12
+  mask_rate: 0.05
+  mask_seed: 1024
+  latent_dim: 512
+  train_data: "../../../../data/cylinder/cylinder_train_data.npy"
+  val_data: "../../../../data/cylinder/cylinder_val_data.npy"
+  save_folder: "../../../../results/DBF/Cylinder"
+  batch_size: 64
+  num_epochs: 200
+  learning_rate: 0.0001
+  weight_decay: 1.0e-5
+  grad_clip: 1.0
+  patience: 30
+  num_workers: 0
+  pin_memory: true
+  ioo_hidden_dims: [1024, 1024]
+  scheduler:
+    step_size: 100
+    gamma: 0.5
+  kl_beta: 1.0
+  recon_sigma2: 0.01
+  obs_noise_std: 0.05
+  train_decoder: true
+  init_cov: 1.0
+  rho_clip: 0.2
+  process_noise_init: -2.0
+  cov_epsilon: 1.0e-6
+  use_rho: true
+  rho_var: 100000000.0
+ERA5:
+  seed: 42
+  seq_length: 64
+  mask_rate: 0.05
+  mask_seed: 1024
+  latent_dim: 512
+  train_data: "../../../../data/ERA5/ERA5_data/train_seq_state.h5"
+  val_data: "../../../../data/ERA5/ERA5_data/val_seq_state.h5"
+  min_data: "../../../../data/ERA5/ERA5_data/min_val.npy"
+  max_data: "../../../../data/ERA5/ERA5_data/max_val.npy"
+  save_folder: "../../../../results/DBF/ERA5"
+  batch_size: 64
+  num_epochs: 100
+  learning_rate: 0.0001
+  weight_decay: 1.0e-5
+  grad_clip: 1.0
+  patience: 30
+  num_workers: 0
+  pin_memory: true
+  ioo_hidden_dims: [1024, 1024]
+  scheduler:
+    step_size: 100
+    gamma: 0.5
+  kl_beta: 1.0
+  recon_sigma2: 0.01
+  obs_noise_std: 0.05
+  train_decoder: true
+  init_cov: 100.0
+  rho_clip: 0.2
+  process_noise_init: -2.0
+  cov_epsilon: 1.0e-6
+  use_rho: true
+  rho_var: 100000000.0
+ERA5_High:
+  seed: 42
+  seq_length: 10
+  mask_rate: 0.05
+  mask_seed: 1024
+  latent_dim: 512
+  train_data: "../../../../data/ERA5_high/raw_data/weatherbench_train.h5"
+  val_data: "../../../../data/ERA5_high/raw_data/weatherbench_test.h5"
+  min_data: "../../../../data/ERA5_high/raw_data/era5high_240x121_min.npy"
+  max_data: "../../../../data/ERA5_high/raw_data/era5high_240x121_max.npy"
+  save_folder: "../../../../results/DBF/ERA5_High"
+  batch_size: 64
+  num_epochs: 100
+  learning_rate: 0.0001
+  weight_decay: 1.0e-5
+  grad_clip: 1.0
+  patience: 30
+  num_workers: 0
+  pin_memory: true
+  ioo_hidden_dims: [1024, 1024]
+  scheduler:
+    step_size: 100
+    gamma: 0.5
+  kl_beta: 1.0
+  recon_sigma2: 0.01
+  obs_noise_std: 0.05
+  train_decoder: true
+  init_cov: 100.0
+  rho_clip: 0.2
+  process_noise_init: -2.0
+  cov_epsilon: 1.0e-6
+  use_rho: true
+  rho_var: 100000000.0
+Kolmogorov:
+  seed: 42
+  seq_length: 12
+  mask_rate: 0.05
+  mask_seed: 1024
+  latent_dim: 512
+  train_data: "../../../../data/kol/kolmogorov_train_data.npy"
+  val_data: "../../../../data/kol/kolmogorov_val_data.npy"
+  save_folder: "../../../../results/DBF/KMG"
+  batch_size: 6
+  num_epochs: 200
+  learning_rate: 0.0001
+  weight_decay: 1.0e-5
+  grad_clip: 1.0
+  patience: 30
+  num_workers: 0
+  pin_memory: true
+  ioo_hidden_dims: [1024, 1024]
+  scheduler:
+    step_size: 100
+    gamma: 0.5
+  kl_beta: 1.0
+  recon_sigma2: 0.01
+  obs_noise_std: 0.05
+  train_decoder: true
+  init_cov: 1.0
+  rho_clip: 0.2
+  process_noise_init: -2.0
+  cov_epsilon: 1.0e-6

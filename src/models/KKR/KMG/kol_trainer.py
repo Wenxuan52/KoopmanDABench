@@ -35,9 +35,10 @@ def main():
         print(f"[INFO] {torch.cuda.get_device_properties(0)}")
     
     # Load configuration
-    config_path = "../../../../configs/CAE_K_KOL.yaml"
+    config_path = "../../../../configs/KKR.yaml"
     with open(config_path, 'r') as file:
         config = yaml.safe_load(file)
+    config = config["Kolmogorov"]
     
     print("[INFO] Starting Kolmogorov Flow Model Training")
     print(f"[INFO] Configuration: {config}")
