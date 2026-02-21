@@ -30,12 +30,11 @@ def main():
         print(f"[INFO] {torch.cuda.get_device_properties(0)}")
 
     # Load configuration
-    config_path = "../../../../configs/CAE_Weaklinear_ERA5_HIGH.yaml"
-    if not os.path.exists(config_path):
-        config_path = "../../../../configs/CAE_Weaklinear_ERA5.yaml"
+    config_path = "../../../../configs/WAE.yaml"
 
     with open(config_path, 'r') as file:
         config = yaml.safe_load(file)
+    config = config["ERA5_High"]
 
     print("[INFO] Starting ERA5 High-Resolution Model Training")
     print(f"[INFO] Configuration: {config}")

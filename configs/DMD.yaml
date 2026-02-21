@@ -1,0 +1,23 @@
+Cylinder:
+  rank: 512
+  seq_length: 12
+  use_gpu: true
+  save_folder: '../../../../results/DMD/Cylinder'
+ERA5:
+  rank: 512
+  seq_length: 10
+  use_gpu: true
+  save_folder: '../../../../results/DMD/ERA5'
+ERA5_High:
+  rank: 512
+  seq_length: 10
+  use_gpu: false
+  save_folder: '../../../../results/DMD/ERA5_High'
+  train_data_path: '../../../../data/ERA5_high/raw_data/weatherbench_train.h5'
+  min_path: '../../../../data/ERA5_high/raw_data/era5high_240x121_min.npy'
+  max_path: '../../../../data/ERA5_high/raw_data/era5high_240x121_max.npy'
+Kolmogorov:
+  rank: 512
+  seq_length: 12
+  use_gpu: true
+  save_folder: '../../../../results/DMD/KMG'

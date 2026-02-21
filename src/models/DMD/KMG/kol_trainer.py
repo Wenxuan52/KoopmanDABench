@@ -77,9 +77,10 @@ def main():
     set_seed(42)
     torch.set_default_dtype(torch.float32)
 
-    config_path = "../../../../configs/DMD_KOL.yaml"
+    config_path = "../../../../configs/DMD.yaml"
     with open(config_path, 'r') as file:
         config = yaml.safe_load(file)
+    config = config["Kolmogorov"]
 
     if config['use_gpu'] and torch.cuda.is_available():
         device = torch.device("cuda:0")

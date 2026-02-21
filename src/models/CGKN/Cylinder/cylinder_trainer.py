@@ -6,6 +6,7 @@ import os
 import time
 import math
 import numpy as np
+import yaml
 from typing import List, Tuple
 
 import torch
@@ -38,79 +39,26 @@ from cylinder_model import (
 # Configs
 # -------------------------
 class Config:
-    # Paths
-    data_path = "../../../../data/cylinder/cylinder_train_data.npy"
-    out_dir   = "../../../../results/CGKN/Cylinder"
-    os.makedirs(out_dir, exist_ok=True)
+    pass
 
-    # Data / time
-    seq_length = 50          # 每个子序列长度，必须 >= s2_long_steps
-    dt = 0.001                  # 真实物理Δt，或用1.0代表一帧
-    train_split = 0.8
 
-    # Observations (u1): ratio-based
-    obs_ratio = 0.15          # 比率，例如 1% 像素作为观测点
-    obs_layout = "random"    # "uniform" 或 "random"
-    min_spacing = 4           # random 模式下的最小像素间距
-    save_probe_coords = True
-    use_channels = [0, 1]
+def load_config() -> Config:
+    config_path = "../../../../configs/CGKN.yaml"
+    with open(config_path, "r") as handle:
+        config = yaml.safe_load(handle)["Cylinder"]
 
-    # Latent
-    dim_z = 512               # 固定为你的 CAE latent size
-    hidden = 128              # CGN dynamics hidden width
+    cfg_obj = Config()
+    for key, value in config.items():
+        setattr(cfg_obj, key, value)
+    if getattr(cfg_obj, "device", "cpu") == "cuda" and not torch.cuda.is_available():
+        cfg_obj.device = "cpu"
+    elif getattr(cfg_obj, "device", "cpu") == "cuda":
+        cfg_obj.device = "cuda:0"
+    os.makedirs(cfg_obj.out_dir, exist_ok=True)
+    return cfg_obj
 
-    # Training
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    seed = 42
-    bs = 64
-    num_workers = 4
 
-    # Stage 1 (short forecast)
-    s1_epochs = 100
-    s1_short_steps = 6
-    s1_lr = 5e-4
-
-    # Stage 2 (add DA)
-    s2_epochs = 50
-    s2_short_steps = 6
-    s2_long_steps = 20       # DA 窗口长度，必须 <= seq_length
-    s2_cut_warmup = 5
-    s2_lr = 1e-3
-
-    # Numerical stability
-    kalman_reg = 1e-6
-
-    # Stage 1 checkpoint options
-    use_pretrained_stage1 = False
-    stage1_ckpt_prefix = "stage1"
-    stage1_ckpt_dir = out_dir
-
-    # Debugging
-    debug_stage2 = False
-    debug_batches = 1
-
-    # Kalman / DA stabilisation
-    kalman_sigma_min_obs = 1e-2
-    kalman_sigma_max_obs = 1.0
-    kalman_sigma_min_latent = 1e-2
-    kalman_sigma_max_latent = 1.0
-    kalman_min_var = 1e-6
-    kalman_max_var = 1.0
-    kalman_cov_clip = 1.0
-    kalman_gain_clip = 50.0
-    kalman_gain_scale = 1e-3
-    kalman_innovation_clip = 1.0
-    kalman_drift_clip = 0.1
-    kalman_state_clip = 10.0
-    kalman_use_diag_cov = True
-
-    # Loss weights
-    lam_ae = 1.0
-    lam_forecast = 1.0
-    lam_latent_forecast = 1.0
-    lam_da = 1.0
-
-cfg = Config()
+cfg = load_config()
 
 # -------------------------
 # Utils
