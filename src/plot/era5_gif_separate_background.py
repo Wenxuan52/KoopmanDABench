@@ -138,6 +138,7 @@ def make_era5_da_gif_separate(
     start_t: int = 0,
     start_datetime_str: str = "2018-05-05 00:00",
     hours_per_frame: int = 4,
+    save_prefix: str = "default_",
 ):
     # DA (analysis) preds
     preds_da = load_predictions(results_root, result_filename, subdir="DA")
@@ -324,7 +325,8 @@ def make_era5_da_gif_separate(
             repeat=True,
         )
 
-        out_path = os.path.join(out_dir, f"era5_da_interobs_channel{ch}.gif")
+        # out_path = os.path.join(out_dir, f"{save_prefix}channel{ch}.gif")
+        out_path = os.path.join(out_dir, f"era5_da_fullobs_channel{ch}.gif")
         writer = PillowWriter(fps=1.0)
         anim.save(out_path, writer=writer)
 
@@ -347,4 +349,5 @@ if __name__ == "__main__":
         start_t=0,
         start_datetime_str="2018-01-01 06:00",
         hours_per_frame=6,
+        save_prefix="era5_da_interobs_",
     )

@@ -18,7 +18,21 @@ data/kol/
 
 __pycache__/
 
-results/
+results/AE/
+results/CGKN/
+results/DBF/
+results/discreteCGKN/
+results/DMD/
+results/KAE/
+results/WAE/
+results/KKR/
+results/Comparison/figures/*.png
+results/Comparison/figures/*1.gif
+results/Comparison/figures/*2.gif
+results/Comparison/figures/*3.gif
+results/Comparison/figures/*4.gif
+results/Comparison/figures/era5_da_fullobs.gif
+results/Comparison/figures/era5_da_interobs_channel0.gif
 
 *.err
 *.out
