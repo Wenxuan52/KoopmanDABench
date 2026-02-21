@@ -1,10 +1,26 @@
 import random
 from time import perf_counter
-from typing import List, Optional, Sequence, Tuple
+from typing import Any, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
 import torchda
+
+def _resolve_default_algorithm() -> Any:
+    """Resolve the default assimilation algorithm across torchda versions."""
+    algorithms = getattr(torchda, "Algorithms", None)
+    if algorithms is not None and hasattr(algorithms, "Var4D"):
+        return algorithms.Var4D
+
+    algorithm = getattr(torchda, "Algorithm", None)
+    if algorithm is not None and hasattr(algorithm, "Var4D"):
+        return algorithm.Var4D
+
+    # Fallback for API variants that accept string algorithm names.
+    return "Var4D"
+
+
+_DEFAULT_TORCHDA_ALGORITHM = _resolve_default_algorithm()
 
 
 def set_seed(seed: Optional[int]):
@@ -152,7 +168,7 @@ class KoopmanDAExecutor:
         optimizer_kwargs: Optional[dict] = None,
         max_iterations: int = 5000,
         early_stop: Tuple[int, float] = (100, 1e-2),
-        algorithm: torchda.Algorithms = torchda.Algorithms.Var4D,
+        algorithm: Any = _DEFAULT_TORCHDA_ALGORITHM,
         output_sequence_length: int = 1,
     ):
         self.forward_model = forward_model
