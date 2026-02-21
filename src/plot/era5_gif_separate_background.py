@@ -31,10 +31,10 @@ from src.utils.Dataset import ERA5Dataset
 
 
 MODEL_MAP = {
-    "Koopman": "KKR",
-    "Linear": "KAE",
-    "Weaklinear": "WAE",
-    "MLP": "AE",
+    "KKR": "KKR",
+    "KAE": "KAE",
+    "WAE": "WAE",
+    "AE": "AE",
     "DMD": "DMD",
     "DBF": "DBF",
     "CGKN": "CGKN",
@@ -50,10 +50,10 @@ CHANNEL_LABELS = [
 
 COL_LABELS = [
     "GroundTruth",
-    "Koopman",
-    "Linear",
-    "Weaklinear",
-    "MLP",
+    "KKR",
+    "KAE",
+    "WAE",
+    "AE",
     "DMD",
     "DBF",
     "CGKN",
@@ -338,6 +338,6 @@ if __name__ == "__main__":
         rollout_filename="interobs_direct_era5_multi_original.npy",
         out_dir="../../results/Comparison/figures",
         start_t=0,
-        start_datetime_str="2018-01-01 04:00",
-        hours_per_frame=4,
+        start_datetime_str="2018-01-01 06:00",
+        hours_per_frame=6,
     )

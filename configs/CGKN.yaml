@@ -1,9 +1,9 @@
 Cylinder:
   data_path: "../../../../data/cylinder/cylinder_train_data.npy"
   out_dir: "../../../../results/CGKN/Cylinder"
-  seq_length: 50
+  seq_length: 12
   dt: 0.001
-  train_split: 0.8
+  train_split: 1.0
   obs_ratio: 0.15
   obs_layout: "random"
   min_spacing: 4
@@ -14,17 +14,17 @@ Cylinder:
   device: "cuda"
   seed: 42
   bs: 64
-  num_workers: 4
+  num_workers: 16
   s1_epochs: 100
   s1_short_steps: 6
   s1_lr: 0.0005
   s2_epochs: 50
   s2_short_steps: 6
-  s2_long_steps: 20
+  s2_long_steps: 12
   s2_cut_warmup: 5
   s2_lr: 0.001
   kalman_reg: 1.0e-6
-  use_pretrained_stage1: false
+  use_pretrained_stage1: False
   stage1_ckpt_prefix: "stage1"
   stage1_ckpt_dir: "../../../../results/CGKN/Cylinder"
   debug_stage2: false
@@ -51,30 +51,30 @@ ERA5:
   min_path: "../../../../data/ERA5/ERA5_data/min_val.npy"
   max_path: "../../../../data/ERA5/ERA5_data/max_val.npy"
   out_dir: "../../../../results/CGKN/ERA5"
-  seq_length: 50
+  seq_length: 10
   dt: 0.001
   train_split: 1.0
   obs_ratio: 0.15
   obs_layout: "random"
   min_spacing: 4
   save_probe_coords: true
-  use_channels: [0, 1]
+  use_channels: [0, 1, 2, 3, 4]
   dim_z: 512
   hidden: 128
   device: "cuda"
   seed: 42
-  bs: 32
-  num_workers: 4
-  s1_epochs: 20
+  bs: 64
+  num_workers: 16
+  s1_epochs: 100
   s1_short_steps: 6
   s1_lr: 0.001
-  s2_epochs: 13
+  s2_epochs: 50
   s2_short_steps: 6
-  s2_long_steps: 20
+  s2_long_steps: 10
   s2_cut_warmup: 5
   s2_lr: 0.001
   kalman_reg: 1.0e-6
-  use_pretrained_stage1: true
+  use_pretrained_stage1: False
   stage1_ckpt_prefix: "stage1"
   stage1_ckpt_dir: "../../../../results/CGKN/ERA5"
   debug_stage2: false
@@ -101,30 +101,30 @@ ERA5_High:
   min_path: "../../../../data/ERA5_high/raw_data/era5high_240x121_min.npy"
   max_path: "../../../../data/ERA5_high/raw_data/era5high_240x121_max.npy"
   out_dir: "../../../../results/CGKN/ERA5_High"
-  seq_length: 50
+  seq_length: 10
   dt: 0.001
   train_split: 1.0
   obs_ratio: 0.15
   obs_layout: "random"
   min_spacing: 4
   save_probe_coords: true
-  use_channels: [0, 1]
+  use_channels: [0, 1, 2, 3, 4]
   dim_z: 512
   hidden: 128
   device: "cuda"
   seed: 42
-  bs: 32
-  num_workers: 4
-  s1_epochs: 20
+  bs: 64
+  num_workers: 16
+  s1_epochs: 100
   s1_short_steps: 6
   s1_lr: 0.001
-  s2_epochs: 13
+  s2_epochs: 50
   s2_short_steps: 6
-  s2_long_steps: 20
+  s2_long_steps: 10
   s2_cut_warmup: 5
   s2_lr: 0.001
   kalman_reg: 1.0e-6
-  use_pretrained_stage1: true
+  use_pretrained_stage1: False
   stage1_ckpt_prefix: "stage1"
   stage1_ckpt_dir: "../../../../results/CGKN/ERA5_High"
   debug_stage2: false
@@ -151,8 +151,8 @@ Kolmogorov:
   out_dir: "../../../../results/CGKN/KMG"
   seq_length: 10
   dt: 0.001
-  train_split: 0.8
-  obs_ratio: 0.02
+  train_split: 1.0
+  obs_ratio: 0.15
   obs_layout: "random"
   min_spacing: 4
   save_probe_coords: true
@@ -161,9 +161,9 @@ Kolmogorov:
   hidden: 128
   device: "cuda"
   seed: 42
-  bs: 16
-  num_workers: 4
-  s1_epochs: 50
+  bs: 64
+  num_workers: 16
+  s1_epochs: 100
   s1_short_steps: 6
   s1_lr: 0.0001
   s2_epochs: 50
@@ -172,7 +172,7 @@ Kolmogorov:
   s2_cut_warmup: 5
   s2_lr: 0.0001
   kalman_reg: 1.0e-6
-  use_pretrained_stage1: true
+  use_pretrained_stage1: False
   stage1_ckpt_prefix: "stage1"
   stage1_ckpt_dir: "../../../../results/CGKN/KMG"
   debug_stage2: false

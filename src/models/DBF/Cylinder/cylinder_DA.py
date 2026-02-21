@@ -183,9 +183,9 @@ def decode_pairs(decoder: CylinderDecoder, latent_pairs: torch.Tensor) -> torch.
 def run_multi_da_experiment(
     obs_ratio: float = 0.15,
     obs_noise_std: float = 0.05,
-    observation_schedule: Iterable[int] | None = None,
+    observation_schedule: list = list(range(4+1)),
     observation_variance: float | None = None,
-    window_length: int = 30,
+    window_length: int = 4,
     num_runs: int = 5,
     early_stop_config: Tuple[int, float] | None = None,
     start_T: int = 700,

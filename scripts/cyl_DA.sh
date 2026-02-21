@@ -15,7 +15,7 @@ conda activate koopmanda
 
 # Cylinder
 # DMD / KKR / KAE / WAE / AE / discreteCGKN / CGKN / DBF
-cd src/models/CGKN/Cylinder
+cd src/models/KKR/Cylinder
 
 python cylinder_DA.py
 

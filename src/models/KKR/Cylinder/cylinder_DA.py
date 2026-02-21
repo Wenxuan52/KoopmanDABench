@@ -111,9 +111,9 @@ def compute_metrics(
 def run_multi_da_experiment(
     obs_ratio: float = 0.15,
     obs_noise_std: float = 0.05,
-    observation_schedule: list = [0, 10, 20],
+    observation_schedule: list = list(range(4)),
     observation_variance: float | None = None,
-    window_length: int = 30,
+    window_length: int = 4,
     num_runs: int = 5,
     early_stop_config: Tuple[int, float] = (100, 1e-3),
     max_iterations: int = 5000,
