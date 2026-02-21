@@ -27,7 +27,7 @@ export XDG_CONFIG_HOME="${CACHE_BASE}/xdg_config"
 mkdir -p "${XDG_CACHE_HOME}" "${XDG_CONFIG_HOME}"
 
 cd /scratch_root/wy524/irp-test-framework/src/plot/
-python era5_DA.py
+python era5_PSD.py
 
 # era5_gif_separate_background
 # era5_gif_separate

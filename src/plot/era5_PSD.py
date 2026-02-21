@@ -1,10 +1,10 @@
 import os
+import sys
 import numpy as np
 import matplotlib
+
 matplotlib.use("Agg")  # headless environments
 import matplotlib.pyplot as plt
-
-import sys
 
 current_directory = os.getcwd()
 src_directory = os.path.abspath(os.path.join(current_directory, "..", ".."))
@@ -34,28 +34,9 @@ CHANNEL_LABELS = [
     "Wind V-direction",
 ]
 
-# Baseline colors (7) -> exactly for 7 baselines
-BASELINE_COLORS = [
-    "#1f77b4",
-    "#ff7f0e",
-    "#2ca02c",
-    "#e377c2",
-    "#9467bd",
-    "#8c564b",
-    "#17becf",
-]
-
-# Ground Truth emphasized
-GT_COLOR = "#ff0000"   # "big red"
-GT_ALPHA = 1.0
-GT_LW = 1.5
-
-# DA / no-DA styles for baselines
-DA_ALPHA = 1.0
-DA_LW = 1.0
-BG_ALPHA = 0.35
-BG_LW = 0.7
-
+# Colors / styles
+GT_COLOR = "#ff0000"     # red
+PRED_COLOR = "#1f77b4"   # blue
 
 # -------------------------
 # IO helpers
@@ -86,7 +67,6 @@ def load_groundtruth(
     """
     Returns (T, C, H, W)
     """
-
     dataset = ERA5Dataset(
         data_path=data_path,
         seq_length=seq_length,
@@ -98,7 +78,9 @@ def load_groundtruth(
     start = start_t + 1
     end = start + num_frames
     if end > raw_data.shape[0]:
-        raise ValueError(f"Requested frames [{start}, {end}) exceed dataset length {raw_data.shape[0]}")
+        raise ValueError(
+            f"Requested frames [{start}, {end}) exceed dataset length {raw_data.shape[0]}"
+        )
 
     groundtruth = raw_data[start:end]
     return np.transpose(groundtruth, (0, 3, 1, 2))
@@ -113,7 +95,9 @@ def _hann2d(h: int, w: int) -> np.ndarray:
     return wy[:, None] * wx[None, :]
 
 
-def isotropic_power_spectrum_2d(field2d: np.ndarray, apply_window: bool = True) -> tuple[np.ndarray, np.ndarray]:
+def isotropic_power_spectrum_2d(
+    field2d: np.ndarray, apply_window: bool = True
+) -> tuple[np.ndarray, np.ndarray]:
     """
     field2d: (H, W)
     Return:
@@ -136,7 +120,6 @@ def isotropic_power_spectrum_2d(field2d: np.ndarray, apply_window: bool = True) 
     N = H * W
     P = (np.abs(F) ** 2) / (N**2 * win_norm)
 
-    # integer wavenumber indices
     kx = np.fft.fftfreq(W) * W
     ky = np.fft.fftfreq(H) * H
     KX, KY = np.meshgrid(kx, ky)
@@ -174,28 +157,40 @@ def time_mean_spectrum(arr: np.ndarray, ch: int) -> tuple[np.ndarray, np.ndarray
 
 
 # -------------------------
-# Plot main
+# Plot main (5 x 7)
 # -------------------------
-def make_spatial_power_spectrum_comparison(
+def make_spatial_power_spectrum_grid(
     data_path: str,
     min_path: str,
     max_path: str,
     results_root: str,
-    result_filename: str = "fullobs_direct_era5_multi.npy",
-    rollout_filename: str = "fullobs_direct_era5_multi_original.npy",
-    out_path: str = "results/Comparison/figures/spatial_power_spectrum_compare.png",
+    da_filename: str = "fullobs_direct_era5_multi.npy",
+    noda_filename: str = "fullobs_direct_era5_multi_original.npy",
+    da_subdir: str = "DA",
+    noda_subdir: str = "DA",
+    out_path: str = "results/Comparison/figures/era5_spectrum_grid.png",
     start_t: int = 0,
+    # ---- font interfaces ----
+    row_label_fontsize: int = 14,
+    col_label_fontsize: int = 14,
+    tick_fontsize: int = 9,
+    sup_fontsize: int = 12,
+    legend_fontsize: int = 12,
+    # ---- line style interfaces ----
+    gt_lw: float = 2.2,
+    da_lw: float = 2.0,
+    noda_lw: float = 2.0,
 ):
-    # load preds
-    preds_da = load_predictions(results_root, result_filename, subdir="DA")
-    preds_bg = load_predictions(results_root, rollout_filename, subdir="DA")
+    # Load predictions
+    preds_da = load_predictions(results_root, da_filename, subdir=da_subdir)
+    preds_noda = load_predictions(results_root, noda_filename, subdir=noda_subdir)
 
-    # align time length
+    # Align time length
     T_da = next(iter(preds_da.values())).shape[0]
-    T_bg = next(iter(preds_bg.values())).shape[0]
-    T = min(T_da, T_bg)
+    T_noda = next(iter(preds_noda.values())).shape[0]
+    T = min(T_da, T_noda)
 
-    # ground truth aligned
+    # Ground truth aligned
     gt = load_groundtruth(
         data_path=data_path,
         min_path=min_path,
@@ -204,72 +199,112 @@ def make_spatial_power_spectrum_comparison(
         num_frames=T,
     )
 
-    # drawing order
-    model_keys = list(MODEL_MAP.keys())  # 7 baselines
-    assert len(model_keys) == len(BASELINE_COLORS), (
-        f"Need {len(model_keys)} baseline colors, but got {len(BASELINE_COLORS)}"
+    model_keys = list(MODEL_MAP.keys())  # 7 models (columns)
+    nrows = len(CHANNEL_LABELS)          # 5 channels (rows)
+    ncols = len(model_keys)
+
+    # Figure sizing: tune as you like
+    fig_w = 3.4 * ncols
+    fig_h = 2.6 * nrows
+    fig, axes = plt.subplots(
+        nrows=nrows,
+        ncols=ncols,
+        figsize=(fig_w, fig_h),
+        sharex=True,
+        sharey="row",   # compare models within each channel row
+        constrained_layout=False,
     )
 
-    # legend labels
-    legend_labels = ["ground truth"] + [MODEL_MAP[k] for k in model_keys]
-
-    # figure: 1x5
-    fig, axes = plt.subplots(1, 5, figsize=(24, 4.8), constrained_layout=True)
-
-    for ch in range(5):
-        ax = axes[ch]
-
-        # --- Ground Truth (emphasized) ---
+    # Precompute GT spectra per channel (used across the row)
+    gt_spec = []
+    for ch in range(nrows):
         k_gt, E_gt = time_mean_spectrum(gt, ch)
-        ax.loglog(
-            k_gt, E_gt,
-            color=GT_COLOR,
-            alpha=GT_ALPHA,
-            lw=GT_LW,
-            label=legend_labels[0],
-            zorder=10,
-        )
+        gt_spec.append((k_gt, E_gt))
 
-        # --- Baselines: DA with legend, BG without legend ---
-        for i, mk in enumerate(model_keys):
-            color = BASELINE_COLORS[i]
+    # For global legend: store handles once
+    legend_handles = None
+    legend_labels = ["Ground Truth", "DA", "No DA"]
 
-            k_da, E_da = time_mean_spectrum(preds_da[mk], ch)
-            ax.loglog(
-                k_da, E_da,
-                color=color,
-                alpha=DA_ALPHA,
-                lw=DA_LW,
-                label=legend_labels[i + 1],
+    for r in range(nrows):
+        k_gt, E_gt = gt_spec[r]
+
+        for c in range(ncols):
+            mk = model_keys[c]
+            ax = axes[r, c] if nrows > 1 else axes[c]
+
+            # --- Plot GT ---
+            h_gt = ax.loglog(
+                k_gt,
+                E_gt,
+                color=GT_COLOR,
+                lw=gt_lw,
+                linestyle="-",
+                zorder=10,
+            )[0]
+
+            # --- Plot DA ---
+            k_da, E_da = time_mean_spectrum(preds_da[mk][:T], r)
+            h_da = ax.loglog(
+                k_da,
+                E_da,
+                color=PRED_COLOR,
+                lw=da_lw,
+                linestyle="-",
+                zorder=6,
+            )[0]
+
+            # --- Plot No DA (dashed) ---
+            k_noda, E_noda = time_mean_spectrum(preds_noda[mk][:T], r)
+            h_noda = ax.loglog(
+                k_noda,
+                E_noda,
+                color=PRED_COLOR,
+                lw=noda_lw,
+                linestyle="--",
                 zorder=5,
-            )
+            )[0]
 
-            k_bg, E_bg = time_mean_spectrum(preds_bg[mk], ch)
-            ax.loglog(
-                k_bg, E_bg,
-                color=color,
-                alpha=BG_ALPHA,
-                lw=BG_LW,
-                zorder=1,
-            )
+            # Save handles once for a unified legend
+            if legend_handles is None:
+                legend_handles = [h_gt, h_da, h_noda]
 
-        ax.set_title(CHANNEL_LABELS[ch], fontsize=12, fontweight="bold")
-        ax.set_xlabel("Wavenumber k")
-        if ch == 0:
-            ax.set_ylabel("Spatial Power Spectrum")
-        ax.grid(True, which="both", ls=":", alpha=0.3)
+            # Grid / ticks
+            ax.grid(True, which="both", ls=":", alpha=0.3)
+            ax.tick_params(axis="both", which="both", labelsize=tick_fontsize)
 
-    # global legend
-    handles, labels = axes[0].get_legend_handles_labels()
+            # Row labels only on first column (bold)
+            if c == 0:
+                ax.set_ylabel(
+                    CHANNEL_LABELS[r],
+                    fontsize=row_label_fontsize,
+                    fontweight="bold",
+                )
+
+            # Column labels only on first row (bold)
+            if r == 0:
+                ax.set_title(
+                    MODEL_MAP[mk],
+                    fontsize=col_label_fontsize,
+                    fontweight="bold",
+                )
+
+    # # Global x/y labels
+    # fig.supxlabel("Wavenumber k", fontsize=sup_fontsize)
+    # fig.supylabel("Spatial Power Spectrum", fontsize=sup_fontsize)
+
+    # Unified legend at the bottom for all subplots
     fig.legend(
-        handles,
-        labels,
-        loc="upper center",
-        ncol=8,
+        legend_handles,
+        legend_labels,
+        loc="lower center",
+        ncol=3,
         frameon=False,
-        fontsize=10,
-        bbox_to_anchor=(0.5, 1.08),
+        fontsize=legend_fontsize,
+        bbox_to_anchor=(0.5, 0.01),
     )
+
+    # Leave space for legend + suxlabel
+    fig.subplots_adjust(left=0.06, right=0.995, top=0.92, bottom=0.08, wspace=0.18, hspace=0.22)
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     fig.savefig(out_path, dpi=200, bbox_inches="tight")
@@ -278,13 +313,24 @@ def make_spatial_power_spectrum_comparison(
 
 
 if __name__ == "__main__":
-    make_spatial_power_spectrum_comparison(
+    make_spatial_power_spectrum_grid(
         data_path="../../data/ERA5/ERA5_data/test_seq_state.h5",
         min_path="../../data/ERA5/ERA5_data/min_val.npy",
         max_path="../../data/ERA5/ERA5_data/max_val.npy",
         results_root="../../results",
-        result_filename="fullobs_direct_era5_multi.npy",
-        rollout_filename="fullobs_direct_era5_multi_original.npy",
-        out_path="../../results/Comparison/figures/era5_spectrum_compare.png",
+        da_filename="fullobs_direct_era5_multi.npy",
+        noda_filename="fullobs_direct_era5_multi_original.npy",
+        da_subdir="DA",
+        noda_subdir="DA",
+        out_path="../../results/Comparison/figures/era5_spectrum_grid.png",
         start_t=0,
+        # you can tune these
+        row_label_fontsize=20,
+        col_label_fontsize=20,
+        tick_fontsize=9,
+        sup_fontsize=13,
+        legend_fontsize=14,
+        gt_lw=2.6,
+        da_lw=2.4,
+        noda_lw=2.4,
     )
